@@ -1,0 +1,21 @@
+{
+    "some_id": {
+        "calendar_name": "Name on calendar",
+        "title": "Name in Slack",
+        "description": "Event description",
+        "price": "Event price",
+        "rsvp_deadline": 24,
+        "event_offset": 0,
+        "rsvp_options": [
+            "Attending",
+            "Attending but with a funny hat"
+        ],
+        "hosts": [
+            "USLACKBOT"
+        ],
+        "regulars": [
+            "USLACKBOT"
+        ],
+        "image": "example.com/image.jpg"
+    }
+}

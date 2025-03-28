@@ -1,0 +1,11 @@
+{
+    "slack": {
+        "bot_token": "xoxb-",
+        "user_token": "xoxp-",
+        "app_token": "xapp-",
+        "rsvp_channel": "CXXXXXXX"
+    },
+    "google": {
+        "calendar_id": "XXXX@group.calendar.google.com"
+    }
+}
