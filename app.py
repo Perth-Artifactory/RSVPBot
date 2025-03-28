@@ -2,16 +2,11 @@ import json
 import logging
 import re
 import sys
-import time
-from copy import deepcopy as copy
-from datetime import datetime
 from pprint import pprint
 
-import openai
 import requests
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
-from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from slack import block_formatters
@@ -166,10 +161,10 @@ def rsvp(ack, body):
                     attending_formatted.append(f"<@{user_info[0]}>+{user_info[1]}")
                 else:
                     attending_formatted.append(f"<@{user}>")
-
+            attending_count = len(attending_formatted)
             attending_formatted = ", ".join(attending_formatted)
             block["text"]["text"] = (
-                f"*{body['actions'][0]['value']}*: {attending_formatted}"
+                f"*{body['actions'][0]['value']}* ({attending_count}): {attending_formatted}"
             )
             new_message_blocks.append(block)
         else:
@@ -224,8 +219,11 @@ def remove_rsvp(ack, body, respond):
                         attending_formatted.append(f"<@{user_info[0]}>+{user_info[1]}")
                     else:
                         attending_formatted.append(f"<@{attendee}>")
+            attending_count = len(attending_formatted)
             attending_formatted = ", ".join(attending_formatted)
-            block["text"]["text"] = f"*{attend_type}*: {attending_formatted}"
+            block["text"]["text"] = (
+                f"*{attend_type}* ({attending_count}): {attending_formatted}"
+            )
             new_message_blocks.append(block)
         else:
             new_message_blocks.append(block)
@@ -280,9 +278,18 @@ def other_rsvp(ack, body, respond):
                     else:
                         new_attending_formatted.append(f"<@{user}>+1")
                 else:
-                    new_attending_formatted.append(f"<@{attendee}>")
+                    if "+" in attendee:
+                        user_info = attendee.split("+")
+                        new_attending_formatted.append(
+                            f"<@{user_info[0]}>+{user_info[1]}"
+                        )
+                    else:
+                        new_attending_formatted.append(f"<@{attendee}>")
+            attending_count = len(new_attending_formatted)
             attending_formatted = ", ".join(new_attending_formatted)
-            block["text"]["text"] = f"*{attend_type}*: {attending_formatted}"
+            block["text"]["text"] = (
+                f"*{attend_type}* ({attending_count}): {attending_formatted}"
+            )
             new_message_blocks.append(block)
         else:
             new_message_blocks.append(block)
@@ -383,8 +390,11 @@ def multi_rsvp_submit(ack, body, logger):
                     )
                 else:
                     attending_formatted.append(f"<@{attendee}>")
+            attending_count = len(attending_formatted)
             attending_formatted = ", ".join(attending_formatted)
-            block["text"]["text"] = f"*{attend_type}*: {attending_formatted}"
+            block["text"]["text"] = (
+                f"*{attend_type}* ({attending_count}): {attending_formatted}"
+            )
             new_message_blocks.append(block)
         else:
             new_message_blocks.append(block)
@@ -414,6 +424,26 @@ def multi_rsvp_submit(ack, body, logger):
         )
     except SlackApiError as e:
         logger.error(f"Error posting ephemeral message: {e.response['error']}")
+
+    # Attach an audit message to the original message
+    try:
+        app.client.chat_postMessage(
+            channel=config["slack"]["rsvp_channel"],
+            thread_ts=ts,
+            text=f"{', '.join([f'<@{user_id}>' for user_id in added])} RSVP'd as {attend_type} by <@{user}>",
+            icon_emoji=":calendar:",
+        )
+    except SlackApiError as e:
+        logger.error(f"Error posting message: {e.response['error']}")
+
+
+@app.action("nevermind")
+def close_eph(ack, body):
+    ack()
+    try:
+        requests.post(body["response_url"], json={"delete_original": True})
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error deleting original message: {e}")
 
 
 # Start the app
