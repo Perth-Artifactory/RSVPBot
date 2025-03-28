@@ -101,18 +101,18 @@ def format_already_rsvp(ts, attend_type):
     block_list[-1]["elements"][-1]["text"]["text"] = "Add an external +1"
     block_list[-1]["elements"][-1]["action_id"] = "other_rsvp"
     block_list[-1]["elements"][-1]["style"] = "primary"
-    block_list[-1]["elements"][-1]["value"] = f"{ts} {attend_type}"
+    block_list[-1]["elements"][-1]["value"] = f"{ts}-{attend_type}"
 
     block_list[-1]["elements"].append(copy(blocks.button))
     block_list[-1]["elements"][-1]["text"]["text"] = "RSVP for others on Slack"
     block_list[-1]["elements"][-1]["action_id"] = "other_slack_rsvp"
-    block_list[-1]["elements"][-1]["value"] = f"{ts} {attend_type}"
+    block_list[-1]["elements"][-1]["value"] = f"{ts}-{attend_type}"
 
     block_list[-1]["elements"].append(copy(blocks.button))
     block_list[-1]["elements"][-1]["text"]["text"] = "Remove RSVP"
     block_list[-1]["elements"][-1]["style"] = "danger"
     block_list[-1]["elements"][-1]["action_id"] = "remove_rsvp"
-    block_list[-1]["elements"][-1]["value"] = f"{ts} {attend_type}"
+    block_list[-1]["elements"][-1]["value"] = f"{ts}-{attend_type}"
 
     return block_list
 

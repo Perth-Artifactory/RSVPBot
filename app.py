@@ -131,7 +131,9 @@ def rsvp(ack, body):
             # If the user is already attending, send an ephemeral message instead
             # We use attending_raw instead of attending so we don't need to handle +1s
             if user in attending_raw:
-                print("User is already attending, we should do something about that")
+                logging.info(
+                    "User has already RSVP'd, sending ephemeral message options"
+                )
 
                 eph_blocks = block_formatters.format_already_rsvp(
                     ts=body["message"]["ts"], attend_type=body["actions"][0]["value"]
@@ -190,7 +192,8 @@ def rsvp(ack, body):
 def remove_rsvp(ack, body, respond):
     ack()
     # Get the info from the button
-    ts, attend_type = body["actions"][0]["value"].split(" ")
+    pprint(body["actions"][0]["value"])
+    ts, attend_type = body["actions"][0]["value"].split("-")
 
     # Retrieve the actual message we care about
     result = app.client.conversations_history(
@@ -217,11 +220,10 @@ def remove_rsvp(ack, body, respond):
                     continue
                 else:
                     if "+" in attendee:
-                        user = attendee.split("+")[0]
-                        count = int(attendee.split("+")[1])
-                        attending_formatted.append(f"<@{user}>+{count}")
+                        user_info = attendee.split("+")
+                        attending_formatted.append(f"<@{user_info[0]}>+{user_info[1]}")
                     else:
-                        attending_formatted.append(f"<@{user}>")
+                        attending_formatted.append(f"<@{attendee}>")
             attending_formatted = ", ".join(attending_formatted)
             block["text"]["text"] = f"*{attend_type}*: {attending_formatted}"
             new_message_blocks.append(block)
@@ -246,7 +248,7 @@ def remove_rsvp(ack, body, respond):
 @app.action("other_rsvp")
 def other_rsvp(ack, body, respond):
     ack()
-    ts, attend_type = body["actions"][0]["value"].split(" ")
+    ts, attend_type = body["actions"][0]["value"].split("-")
     user = body["user"]["id"]
 
     # Retrieve the actual message we care about
@@ -278,7 +280,7 @@ def other_rsvp(ack, body, respond):
                     else:
                         new_attending_formatted.append(f"<@{user}>+1")
                 else:
-                    new_attending_formatted.append(attendee)
+                    new_attending_formatted.append(f"<@{attendee}>")
             attending_formatted = ", ".join(new_attending_formatted)
             block["text"]["text"] = f"*{attend_type}*: {attending_formatted}"
             new_message_blocks.append(block)
@@ -322,7 +324,7 @@ def modal_other_slack_rsvp(ack, body, respond):
                 "blocks": blocks,
                 "submit": {"type": "plain_text", "text": "RSVP"},
                 "close": {"type": "plain_text", "text": "Cancel"},
-                "private_metadata": f"{body['actions'][0]['value']} {body['channel']['id']}",
+                "private_metadata": f"{body['actions'][0]['value']}-{body['channel']['id']}",
             },
         )
     except SlackApiError as e:
@@ -336,7 +338,7 @@ def multi_rsvp_submit(ack, body, logger):
     ack()
 
     # Parse the private metadata
-    ts, attend_type, channel = body["view"]["private_metadata"].split(" ")
+    ts, attend_type, channel = body["view"]["private_metadata"].split("-")
     user = body["user"]["id"]
 
     # Retrieve the actual message we care about
@@ -369,6 +371,7 @@ def multi_rsvp_submit(ack, body, logger):
                 for attendee in attending:
                     if new_attendee in attendee:
                         already_attending = True
+                        break
                 if not already_attending:
                     attending.append(new_attendee)
                     added.append(new_attendee)
