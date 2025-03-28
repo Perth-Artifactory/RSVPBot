@@ -1,28 +1,18 @@
-import importlib
 import json
 import logging
-import re
 import sys
-import time
-from copy import deepcopy as copy
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pprint import pprint
-
-import openai
-import requests
-from slack_bolt import App
-from slack_bolt.adapter.socket_mode import SocketModeHandler
-from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
-
-from slack import block_formatters
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from slack_bolt import App
+from slack_sdk.errors import SlackApiError
 
+from slack import block_formatters
 
 # Set up logging
 logging.basicConfig(
@@ -130,7 +120,7 @@ for event in formatted_events:
                 sending_event["start"] = event["start"]
                 blocks = block_formatters.format_event(sending_event)
                 try:
-                    app.client.chat_postMessage(
+                    response = app.client.chat_postMessage(
                         channel=config["slack"]["rsvp_channel"],
                         blocks=blocks,
                         text=f"RSVP for {sending_event['title']}!",
@@ -141,3 +131,18 @@ for event in formatted_events:
                     logger.error(f"Error posting message: {e.response['error']}")
                     logger.error(e.response)
                     pprint(blocks)
+
+                # Tag any event regulars in a reply to the event post
+
+                if sending_event.get("regulars", []):
+                    regulars = sending_event["regulars"]
+                    regulars_str = ", ".join([f"<@{r}>" for r in regulars])
+                    try:
+                        r = app.client.chat_postMessage(
+                            channel=config["slack"]["rsvp_channel"],
+                            text=f"Notifying regular attendees: {regulars_str}\n\nTalk to an event host if you want to be added to this list for future events!",
+                            thread_ts=response["ts"],
+                        )
+                    except SlackApiError as e:
+                        logger.error(f"Error posting message: {e.response['error']}")
+                        logger.error(e.response)
