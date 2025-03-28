@@ -100,7 +100,6 @@ if posting:
                 channel=config["slack"]["rsvp_channel"],
                 blocks=blocks,
                 text=f"RSVP for {event['title']}!",
-                username="Event RSVPs",
                 icon_emoji=":calendar:",
             )
         except SlackApiError as e:
@@ -145,6 +144,7 @@ def rsvp(ack, body):
                         user=user,
                         blocks=eph_blocks,
                         text="You have already RSVP'd to this event.",
+                        icon_emoji=":calendar:",
                     )
                 except SlackApiError as e:
                     logger.error(
@@ -180,6 +180,7 @@ def rsvp(ack, body):
             ts=body["message"]["ts"],
             blocks=new_message_blocks,
             text=body["message"]["text"],
+            icon_emoji=":calendar:",
         )
     except SlackApiError as e:
         logger.error(f"Error updating message: {e.response['error']}")
@@ -234,6 +235,7 @@ def remove_rsvp(ack, body, respond):
             ts=ts,
             blocks=new_message_blocks,
             text=message["text"],
+            icon_emoji=":calendar:",
         )
     except SlackApiError as e:
         logger.error(f"Error updating message: {e.response['error']}")
@@ -291,6 +293,7 @@ def other_rsvp(ack, body, respond):
             ts=ts,
             blocks=new_message_blocks,
             text=message["text"],
+            icon_emoji=":calendar:",
         )
     except SlackApiError as e:
         logger.error(f"Error updating message: {e.response['error']}")
@@ -390,6 +393,7 @@ def multi_rsvp_submit(ack, body, logger):
             ts=ts,
             blocks=new_message_blocks,
             text=message["text"],
+            icon_emoji=":calendar:",
         )
     except SlackApiError as e:
         logger.error(f"Error updating message: {e.response['error']}")
@@ -403,6 +407,7 @@ def multi_rsvp_submit(ack, body, logger):
             channel=channel,
             user=user,
             text=eph_message,
+            icon_emoji=":calendar:",
         )
     except SlackApiError as e:
         logger.error(f"Error posting ephemeral message: {e.response['error']}")

@@ -142,6 +142,7 @@ for event in formatted_events:
                             channel=config["slack"]["rsvp_channel"],
                             text=f"Notifying regular attendees: {regulars_str}\n\nTalk to an event host if you want to be added to this list for future events!",
                             thread_ts=response["ts"],
+                            icon_emoji=":calendar:",
                         )
                     except SlackApiError as e:
                         logger.error(f"Error posting message: {e.response['error']}")
