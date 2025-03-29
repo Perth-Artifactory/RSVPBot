@@ -16,6 +16,9 @@
         "regulars": [
             "USLACKBOT"
         ],
+        "auto_rsvp": ["USLACKBOT"],
+        "days_before": 2,
+        "channel_override": "XXX",
         "image": "example.com/image.jpg"
     }
 }

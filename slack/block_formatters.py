@@ -16,12 +16,16 @@ def format_event(event: dict) -> list[dict]:
     block_list = add_block(block_list=block_list, block=blocks.header)
     block_list = inject_text(block_list=block_list, text=f"{event['title']} RSVP")
     block_list = add_block(block_list=block_list, block=blocks.text)
-    block_list = inject_text(block_list=block_list, text=event["description"])
+    block_list = inject_text(
+        block_list=block_list, text=event.get("description", "Come on down!")
+    )
 
     # Construct info fields
     info_fields = []
-    info_fields.append(copy(blocks.field))
-    info_fields[-1]["text"] = f"*Price:* {event['price']}"
+
+    if event.get("price"):
+        info_fields.append(copy(blocks.field))
+        info_fields[-1]["text"] = f"*Price:* {event['price']}"
 
     info_fields.append(copy(blocks.field))
     # Calculate the start time of the event based on the datetime modified by the event offset
@@ -31,24 +35,27 @@ def format_event(event: dict) -> list[dict]:
         f"*When:* <!date^{int(start_time.timestamp())}^{{time}} {{date_long_pretty}}|{start_time.strftime('%A, %B %d, %Y %I:%M %p')}>"
     )
 
-    info_fields.append(copy(blocks.field))
-    # Calculate the RSVP time
-    rsvp_time = start_time - timedelta(hours=event["rsvp_deadline"])
+    if event.get("rsvp_deadline"):
+        info_fields.append(copy(blocks.field))
+        # Calculate the RSVP time
+        rsvp_time = start_time - timedelta(hours=event["rsvp_deadline"])
 
-    info_fields[-1]["text"] = (
-        f"*RSVP by:* <!date^{int(rsvp_time.timestamp())}^{{time}} {{date_long_pretty}}|{rsvp_time.strftime('%A, %B %d, %Y %I:%M %p')}>"
-    )
+        info_fields[-1]["text"] = (
+            f"*RSVP by:* <!date^{int(rsvp_time.timestamp())}^{{time}} {{date_long_pretty}}|{rsvp_time.strftime('%A, %B %d, %Y %I:%M %p')}>"
+        )
 
-    if len(event["hosts"]) > 1:
-        field_title = "*Hosts:*"
-    else:
-        field_title = "*Host:*"
-    host_string = ""
-    for host in event["hosts"]:
-        host_string += f"<@{host}>, "
-    host_string = host_string[:-2]
-    info_fields.append(copy(blocks.field))
-    info_fields[-1]["text"] = f"{field_title} {host_string}"
+    if event.get("hosts", []) != []:
+        if len(event["hosts"]) > 1:
+            field_title = "*Hosts:*"
+        else:
+            field_title = "*Host:*"
+        host_string = ""
+        for host in event["hosts"]:
+            host_string += f"<@{host}>, "
+        host_string = host_string[:-2]
+        info_fields.append(copy(blocks.field))
+        info_fields[-1]["text"] = f"{field_title} {host_string}"
+
     block_list[-1]["fields"] = info_fields
 
     if event.get("image"):
@@ -67,6 +74,12 @@ def format_event(event: dict) -> list[dict]:
         rsvp_sections[-1]["accessory"]["text"]["text"] = f"RSVP: {option}"
         rsvp_sections[-1]["accessory"]["value"] = option
         rsvp_sections[-1]["accessory"]["action_id"] = f"rsvp_{option}"
+
+        # Tack on auto RSVP'd users to the first attending option
+        if len(rsvp_sections) == 1 and event.get("auto_rsvp", []) != []:
+            rsvp_sections[-1]["accessory"]["text"]["text"] += ", ".join(
+                [f"<@{user_id}>" for user_id in event["auto_rsvp"]]
+            )
 
     # Add RSVPs to block list
     block_list += rsvp_sections

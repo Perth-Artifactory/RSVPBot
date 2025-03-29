@@ -173,7 +173,7 @@ def rsvp(ack, body):
     # Update the message
     try:
         app.client.chat_update(
-            channel=config["slack"]["rsvp_channel"],
+            channel=body["channel"]["id"],
             ts=body["message"]["ts"],
             blocks=new_message_blocks,
             text=body["message"]["text"],
@@ -187,12 +187,11 @@ def rsvp(ack, body):
 def remove_rsvp(ack, body, respond):
     ack()
     # Get the info from the button
-    pprint(body["actions"][0]["value"])
     ts, attend_type = body["actions"][0]["value"].split("-")
 
     # Retrieve the actual message we care about
     result = app.client.conversations_history(
-        channel=config["slack"]["rsvp_channel"], inclusive=True, oldest=ts, limit=1
+        channel=body["channel"]["id"], inclusive=True, oldest=ts, limit=1
     )
 
     message = result["messages"][0]
@@ -231,7 +230,7 @@ def remove_rsvp(ack, body, respond):
     # Update the message
     try:
         app.client.chat_update(
-            channel=config["slack"]["rsvp_channel"],
+            channel=body["channel"]["id"],
             ts=ts,
             blocks=new_message_blocks,
             text=message["text"],
@@ -252,7 +251,7 @@ def other_rsvp(ack, body, respond):
     # Retrieve the actual message we care about
 
     result = app.client.conversations_history(
-        channel=config["slack"]["rsvp_channel"], inclusive=True, oldest=ts, limit=1
+        channel=body["channel"]["id"], inclusive=True, oldest=ts, limit=1
     )
 
     message = result["messages"][0]
@@ -298,7 +297,7 @@ def other_rsvp(ack, body, respond):
 
     try:
         app.client.chat_update(
-            channel=config["slack"]["rsvp_channel"],
+            channel=body["channel"]["id"],
             ts=ts,
             blocks=new_message_blocks,
             text=message["text"],
@@ -350,7 +349,7 @@ def multi_rsvp_submit(ack, body, logger):
 
     # Retrieve the actual message we care about
     result = app.client.conversations_history(
-        channel=config["slack"]["rsvp_channel"], inclusive=True, oldest=ts, limit=1
+        channel=channel, inclusive=True, oldest=ts, limit=1
     )
 
     message = result["messages"][0]
@@ -402,7 +401,7 @@ def multi_rsvp_submit(ack, body, logger):
     # Update the message
     try:
         app.client.chat_update(
-            channel=config["slack"]["rsvp_channel"],
+            channel=channel,
             ts=ts,
             blocks=new_message_blocks,
             text=message["text"],
@@ -428,7 +427,7 @@ def multi_rsvp_submit(ack, body, logger):
     # Attach an audit message to the original message
     try:
         app.client.chat_postMessage(
-            channel=config["slack"]["rsvp_channel"],
+            channel=channel,
             thread_ts=ts,
             text=f"{', '.join([f'<@{user_id}>' for user_id in added])} RSVP'd as {attend_type} by <@{user}>",
             icon_emoji=":calendar:",

@@ -111,39 +111,57 @@ except HttpError:
     sys.exit(1)
 
 for event in formatted_events:
-    if event["days_until"] == 4:
-        # Look for event templates with a title that matches the event
-        for template_event_id in event_templates:
-            template_event = event_templates[template_event_id]
-            if template_event["calendar_name"] == event["title"]:
-                sending_event = template_event
-                sending_event["start"] = event["start"]
-                blocks = block_formatters.format_event(sending_event)
+    # Look for event templates with a title that matches the event
+    for template_event_id in event_templates:
+        template_event = event_templates[template_event_id]
+        if (
+            template_event["calendar_name"] == event["title"]
+            and template_event.get("days_before", config["days_before"])
+            == event["days_until"]
+        ):
+            sending_event = template_event
+            sending_event["start"] = event["start"]
+
+            if not sending_event.get("title"):
+                sending_event["title"] = event["title"]
+
+            if not sending_event.get("rsvp_deadline"):
+                sending_event["rsvp_deadline"] = 0
+
+            if not sending_event.get("event_offset"):
+                sending_event["event_offset"] = 0
+
+            blocks = block_formatters.format_event(sending_event)
+
+            channel = sending_event.get(
+                "channel_override", config["slack"]["rsvp_channel"]
+            )
+
+            try:
+                response = app.client.chat_postMessage(
+                    channel=channel,
+                    blocks=blocks,
+                    text=f"RSVP for {sending_event['title']}!",
+                    username="Event RSVPs",
+                    icon_emoji=":calendar:",
+                )
+            except SlackApiError as e:
+                logger.error(f"Error posting message: {e.response['error']}")
+                logger.error(e.response)
+                pprint(blocks)
+
+            # Tag any event regulars in a reply to the event post
+
+            if sending_event.get("regulars", []):
+                regulars = sending_event["regulars"]
+                regulars_str = ", ".join([f"<@{r}>" for r in regulars])
                 try:
-                    response = app.client.chat_postMessage(
-                        channel=config["slack"]["rsvp_channel"],
-                        blocks=blocks,
-                        text=f"RSVP for {sending_event['title']}!",
-                        username="Event RSVPs",
+                    r = app.client.chat_postMessage(
+                        channel=channel,
+                        text=f"{sending_event['title']} RSVP is up!\n{regulars_str}\n\nTalk to an event host if you want to be added to this list for future events!",
+                        thread_ts=response["ts"],
                         icon_emoji=":calendar:",
                     )
                 except SlackApiError as e:
                     logger.error(f"Error posting message: {e.response['error']}")
                     logger.error(e.response)
-                    pprint(blocks)
-
-                # Tag any event regulars in a reply to the event post
-
-                if sending_event.get("regulars", []):
-                    regulars = sending_event["regulars"]
-                    regulars_str = ", ".join([f"<@{r}>" for r in regulars])
-                    try:
-                        r = app.client.chat_postMessage(
-                            channel=config["slack"]["rsvp_channel"],
-                            text=f"Notifying regular attendees: {regulars_str}\n\nTalk to an event host if you want to be added to this list for future events!",
-                            thread_ts=response["ts"],
-                            icon_emoji=":calendar:",
-                        )
-                    except SlackApiError as e:
-                        logger.error(f"Error posting message: {e.response['error']}")
-                        logger.error(e.response)
