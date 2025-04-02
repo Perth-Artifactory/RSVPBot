@@ -2,6 +2,8 @@ import logging
 from copy import deepcopy as copy
 from datetime import timedelta
 from pprint import pprint
+
+from editable_resources import strings
 from slack import blocks
 
 # Set up logging
@@ -87,7 +89,7 @@ def format_event(event: dict) -> list[dict]:
     block_list = add_block(block_list=block_list, block=blocks.context)
     block_list = inject_text(
         block_list=block_list,
-        text="To RSVP for multiple people or remove your RSVP, click the RSVP button a second time!",
+        text=strings.event_footer,
     )
 
     return block_list
@@ -99,25 +101,23 @@ def format_already_rsvp(ts, attend_type):
     block_list = []
 
     block_list = add_block(block_list=block_list, block=blocks.text)
-    block_list = inject_text(
-        block_list=block_list, text="You have already RSVP'd to this event."
-    )
+    block_list = inject_text(block_list=block_list, text=strings.already_rsvpd)
 
     block_list = add_block(block_list=block_list, block=blocks.actions)
 
     block_list[-1]["elements"].append(copy(blocks.button))
-    block_list[-1]["elements"][-1]["text"]["text"] = "RSVP for a personal guest"
+    block_list[-1]["elements"][-1]["text"]["text"] = strings.personal_rsvp
     block_list[-1]["elements"][-1]["action_id"] = "other_rsvp"
     block_list[-1]["elements"][-1]["style"] = "primary"
     block_list[-1]["elements"][-1]["value"] = f"{ts}-{attend_type}"
 
     block_list[-1]["elements"].append(copy(blocks.button))
-    block_list[-1]["elements"][-1]["text"]["text"] = "RSVP for Slack users"
+    block_list[-1]["elements"][-1]["text"]["text"] = strings.slack_rsvp
     block_list[-1]["elements"][-1]["action_id"] = "other_slack_rsvp"
     block_list[-1]["elements"][-1]["value"] = f"{ts}-{attend_type}"
 
     block_list[-1]["elements"].append(copy(blocks.button))
-    block_list[-1]["elements"][-1]["text"]["text"] = "Remove RSVP"
+    block_list[-1]["elements"][-1]["text"]["text"] = strings.remove_rsvp
     block_list[-1]["elements"][-1]["style"] = "danger"
     block_list[-1]["elements"][-1]["action_id"] = "remove_rsvp"
     block_list[-1]["elements"][-1]["value"] = f"{ts}-{attend_type}"
@@ -138,12 +138,12 @@ def format_multi_rsvp_modal():
     block_list = add_block(block_list=block_list, block=blocks.text)
     block_list = inject_text(
         block_list=block_list,
-        text="People you RSVP for here will be the *only ones able to remove their RSVP*. You will not be able to remove it for them.",
+        text=strings.rsvp_slack_warning,
     )
 
     block_list = add_block(block_list=block_list, block=blocks.multi_users_select)
     block_list[-1]["element"]["action_id"] = "multi_rsvp"
-    block_list[-1]["label"]["text"] = "Select users to RSVP for"
+    block_list[-1]["label"]["text"] = strings.user_select
     block_list[-1]["block_id"] = "multi_rsvp"
     block_list[-1]["element"].pop("placeholder")
 

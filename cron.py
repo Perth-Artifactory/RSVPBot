@@ -13,6 +13,7 @@ from slack_bolt import App
 from slack_sdk.errors import SlackApiError
 
 from slack import block_formatters
+from editable_resources import strings
 
 # Set up logging
 logging.basicConfig(
@@ -158,7 +159,10 @@ for event in formatted_events:
                 try:
                     r = app.client.chat_postMessage(
                         channel=channel,
-                        text=f"{sending_event['title']} RSVP is up!\n{regulars_str}\n\nTalk to an event host if you want to be added to this list for future events!",
+                        text=strings.regular_ping.format(
+                            title=sending_event["title"],
+                            regulars_str=regulars_str,
+                        ),
                         thread_ts=response["ts"],
                         icon_emoji=":calendar:",
                     )

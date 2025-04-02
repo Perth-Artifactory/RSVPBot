@@ -11,6 +11,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk.errors import SlackApiError
 
 from slack import block_formatters, misc
+from editable_resources import strings
 
 
 # Set up logging
@@ -139,7 +140,7 @@ def rsvp(ack, body):
                 app.client.chat_postEphemeral(
                     channel=body["channel"]["id"],
                     user=body["user"]["id"],
-                    text="This event has already started.",
+                    text=strings.event_started,
                     icon_emoji=":calendar:",
                 )
             except SlackApiError as e:
@@ -153,7 +154,7 @@ def rsvp(ack, body):
                 app.client.chat_postEphemeral(
                     channel=body["channel"]["id"],
                     user=body["user"]["id"],
-                    text="The RSVP deadline for this event has passed. You may be able to attend, but please check with the host first.",
+                    text=strings.rsvp_deadline_passed,
                     icon_emoji=":calendar:",
                 )
             except SlackApiError as e:
@@ -192,7 +193,7 @@ def rsvp(ack, body):
                         channel=body["channel"]["id"],
                         user=user,
                         blocks=eph_blocks,
-                        text="You have already RSVP'd to this event.",
+                        text=strings.already_rsvpd,
                         icon_emoji=":calendar:",
                     )
                 except SlackApiError as e:
@@ -415,7 +416,7 @@ def multi_rsvp_submit(ack, body, logger):
     # Post a new ephemeral message to the user
     eph_message = f"RSVP added for: {', '.join([f'<@{user_id}>' for user_id in added])}"
     if len(added) == 0:
-        eph_message = "No new RSVPs added (they may already be attending)"
+        eph_message = strings.no_rsvps_added
     try:
         app.client.chat_postEphemeral(
             channel=channel,
