@@ -25,7 +25,7 @@ def format_event(event: dict) -> list[dict]:
 
     if event.get("price"):
         info_fields.append(copy(blocks.field))
-        info_fields[-1]["text"] = f"*Price:* {event['price']}"
+        info_fields[-1]["text"] = f"*Price*: {event['price']}"
 
     info_fields.append(copy(blocks.field))
     # Calculate the start time of the event based on the datetime modified by the event offset
@@ -41,14 +41,14 @@ def format_event(event: dict) -> list[dict]:
         rsvp_time = start_time - timedelta(hours=event["rsvp_deadline"])
 
         info_fields[-1]["text"] = (
-            f"*RSVP by:* <!date^{int(rsvp_time.timestamp())}^{{time}} {{date_long_pretty}}|{rsvp_time.strftime('%A, %B %d, %Y %I:%M %p')}>"
+            f"*RSVP by*: <!date^{int(rsvp_time.timestamp())}^{{time}} {{date_long_pretty}}|{rsvp_time.strftime('%A, %B %d, %Y %I:%M %p')}>"
         )
 
     if event.get("hosts", []) != []:
         if len(event["hosts"]) > 1:
-            field_title = "*Hosts:*"
+            field_title = "*Hosts*:"
         else:
-            field_title = "*Host:*"
+            field_title = "*Host*:"
         host_string = ""
         for host in event["hosts"]:
             host_string += f"<@{host}>, "

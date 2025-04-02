@@ -3,6 +3,7 @@ import logging
 import re
 import sys
 from pprint import pprint
+from datetime import datetime, timedelta
 
 import requests
 from slack_bolt import App
@@ -105,6 +106,61 @@ if posting:
 @app.action(re.compile(r"^rsvp_.*"))
 def rsvp(ack, body):
     ack()
+
+    # Look for the event start time and/or RSVP deadline
+
+    rsvp_time = None
+    start_time = None
+    for block in body["message"]["blocks"]:
+        if block.get("fields"):
+            time_pattern = re.compile(r"\^(\d+)\^")
+            for field in block["fields"]:
+                if field["text"].startswith("*When:*"):
+                    start_time_matches = re.search(time_pattern, field["text"])
+                    if start_time_matches:
+                        # Convert the epoch time to a datetime object
+                        start_time = datetime.fromtimestamp(
+                            int(start_time_matches.group(1))
+                        )
+                if field["text"].startswith("*RSVP by:*"):
+                    rsvp_time_matches = re.search(time_pattern, field["text"])
+                    if rsvp_time_matches:
+                        rsvp_time = datetime.fromtimestamp(
+                            int(rsvp_time_matches.group(1))
+                        )
+
+    denied = False
+    if start_time:
+        print(f"Start time: {start_time}")
+        # Check if the event has already started
+        if datetime.now() > start_time:
+            denied = True
+            # Send an ephemeral message to the user
+            try:
+                app.client.chat_postEphemeral(
+                    channel=body["channel"]["id"],
+                    user=body["user"]["id"],
+                    text="This event has already started.",
+                    icon_emoji=":calendar:",
+                )
+            except SlackApiError as e:
+                logger.error(f"Error posting ephemeral message: {e.response['error']}")
+            return
+    if rsvp_time and not denied:
+        print(f"RSVP time: {rsvp_time}")
+        # Check if the RSVP deadline has passed
+        if datetime.now() > rsvp_time:
+            # Send an ephemeral message to the user
+            try:
+                app.client.chat_postEphemeral(
+                    channel=body["channel"]["id"],
+                    user=body["user"]["id"],
+                    text="The RSVP deadline for this event has passed. You may be able to attend, but please check with the host first.",
+                    icon_emoji=":calendar:",
+                )
+            except SlackApiError as e:
+                logger.error(f"Error posting ephemeral message: {e.response['error']}")
+            return
 
     original_message_blocks = body["message"]["blocks"]
     new_message_blocks = []
