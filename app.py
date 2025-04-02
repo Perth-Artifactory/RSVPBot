@@ -9,7 +9,7 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk.errors import SlackApiError
 
-from slack import block_formatters
+from slack import block_formatters, misc
 
 
 # Set up logging
@@ -114,18 +114,14 @@ def rsvp(ack, body):
 
     for block in original_message_blocks:
         if block.get("block_id") == rsvp_block_id:
-            # Parse out who is attending right now
-            attending_raw = block["text"]["text"]
-            attending_formatted = attending_raw.split(": ")[1].split(", ")
-            # Strip the formatting from the user IDs
-            attending = [
-                re.sub(r"<@|>", "", user) for user in attending_formatted if user
-            ]
+            # Get the list of attendees
+            attendees = misc.parse_rsvps(line=block["text"]["text"])
+
             # Get the user who clicked the button
             user = body["user"]["id"]
+
             # If the user is already attending, send an ephemeral message instead
-            # We use attending_raw instead of attending so we don't need to handle +1s
-            if user in attending_raw:
+            if user in attendees:
                 logging.info(
                     "User has already RSVP'd, sending ephemeral message options"
                 )
@@ -151,20 +147,11 @@ def rsvp(ack, body):
 
             # If the user is not in attending, add them to the list
             else:
-                attending.append(user)
+                attendees[user] = 1
 
-            # Reformat the attending list
-            attending_formatted = []
-            for user in attending:
-                if "+" in user:
-                    user_info = user.split("+")
-                    attending_formatted.append(f"<@{user_info[0]}>+{user_info[1]}")
-                else:
-                    attending_formatted.append(f"<@{user}>")
-            attending_count = len(attending_formatted)
-            attending_formatted = ", ".join(attending_formatted)
+            attend_type = body["actions"][0]["value"]
             block["text"]["text"] = (
-                f"*{body['actions'][0]['value']}* ({attending_count}): {attending_formatted}"
+                f"*{attend_type}* ({misc.count_rsvps(attendees=attendees)}): {misc.format_rsvps(attendees=attendees)}"
             )
             new_message_blocks.append(block)
         else:
@@ -202,26 +189,17 @@ def remove_rsvp(ack, body, respond):
 
     for block in original_message_blocks:
         if block.get("block_id") == block_id:
-            attending_raw = block["text"]["text"]
-            attending_formatted = attending_raw.split(": ")[1].split(", ")
-            attending = [
-                re.sub(r"<@|>", "", user) for user in attending_formatted if user
-            ]
+            attendees = misc.parse_rsvps(line=block["text"]["text"])
+
+            # Get the user who clicked the button
             user = body["user"]["id"]
-            attending_formatted = []
-            for attendee in attending:
-                if user in attendee:
-                    continue
-                else:
-                    if "+" in attendee:
-                        user_info = attendee.split("+")
-                        attending_formatted.append(f"<@{user_info[0]}>+{user_info[1]}")
-                    else:
-                        attending_formatted.append(f"<@{attendee}>")
-            attending_count = len(attending_formatted)
-            attending_formatted = ", ".join(attending_formatted)
+
+            # If the user is already attending, remove them from the list
+            if user in attendees:
+                del attendees[user]
+
             block["text"]["text"] = (
-                f"*{attend_type}* ({attending_count}): {attending_formatted}"
+                f"*{attend_type}* ({misc.count_rsvps(attendees=attendees)}): {misc.format_rsvps(attendees=attendees)}"
             )
             new_message_blocks.append(block)
         else:
@@ -246,7 +224,6 @@ def remove_rsvp(ack, body, respond):
 def other_rsvp(ack, body, respond):
     ack()
     ts, attend_type = body["actions"][0]["value"].split("-")
-    user = body["user"]["id"]
 
     # Retrieve the actual message we care about
 
@@ -263,31 +240,18 @@ def other_rsvp(ack, body, respond):
 
     for block in original_message_blocks:
         if block.get("block_id") == block_id:
-            attending_raw = block["text"]["text"]
-            attending_formatted = attending_raw.split(": ")[1].split(", ")
-            attending = [
-                re.sub(r"<@|>", "", user) for user in attending_formatted if user
-            ]
-            new_attending_formatted = []
-            for attendee in attending:
-                if user in attendee:
-                    if "+" in attendee:
-                        count = int(attendee.split("+")[1])
-                        new_attending_formatted.append(f"<@{user}>+{count + 1}")
-                    else:
-                        new_attending_formatted.append(f"<@{user}>+1")
-                else:
-                    if "+" in attendee:
-                        user_info = attendee.split("+")
-                        new_attending_formatted.append(
-                            f"<@{user_info[0]}>+{user_info[1]}"
-                        )
-                    else:
-                        new_attending_formatted.append(f"<@{attendee}>")
-            attending_count = len(new_attending_formatted)
-            attending_formatted = ", ".join(new_attending_formatted)
+            attendees = misc.parse_rsvps(line=block["text"]["text"])
+
+            # Get the user who clicked the button
+            user = body["user"]["id"]
+
+            if user in attendees:
+                attendees[user] += 1
+            else:
+                attendees[user] = 1
+
             block["text"]["text"] = (
-                f"*{attend_type}* ({attending_count}): {attending_formatted}"
+                f"*{attend_type}* ({misc.count_rsvps(attendees=attendees)}): {misc.format_rsvps(attendees=attendees)}"
             )
             new_message_blocks.append(block)
         else:
@@ -366,33 +330,15 @@ def multi_rsvp_submit(ack, body, logger):
 
     for block in original_message_blocks:
         if block.get("block_id") == block_id:
-            attending_raw = block["text"]["text"]
-            attending_formatted = attending_raw.split(": ")[1].split(", ")
-            attending = [
-                re.sub(r"<@|>", "", user) for user in attending_formatted if user
-            ]
-            attending_formatted = []
+            attendees = misc.parse_rsvps(line=block["text"]["text"])
+
             for new_attendee in other_attendees:
-                already_attending = False
-                for attendee in attending:
-                    if new_attendee in attendee:
-                        already_attending = True
-                        break
-                if not already_attending:
-                    attending.append(new_attendee)
+                if new_attendee not in attendees:
+                    attendees[new_attendee] = 1
                     added.append(new_attendee)
-            for attendee in attending:
-                if "+" in attendee:
-                    attendee_info = attendee.split("+")
-                    attending_formatted.append(
-                        f"<@{attendee_info[0]}>+{attendee_info[1]}"
-                    )
-                else:
-                    attending_formatted.append(f"<@{attendee}>")
-            attending_count = len(attending_formatted)
-            attending_formatted = ", ".join(attending_formatted)
+
             block["text"]["text"] = (
-                f"*{attend_type}* ({attending_count}): {attending_formatted}"
+                f"*{attend_type}* ({misc.count_rsvps(attendees=attendees)}): {misc.format_rsvps(attendees=attendees)}"
             )
             new_message_blocks.append(block)
         else:

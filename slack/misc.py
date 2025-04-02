@@ -2,10 +2,10 @@ import json
 import logging
 from pprint import pprint
 import requests
+import re
 
 import jsonschema
 
-from slack import block_formatters
 import slack_bolt as bolt
 import slack_sdk.errors
 
@@ -223,3 +223,63 @@ def search_results_to_options(search_results: dict, taiga_cache: dict):
         )
 
     return option_groups
+
+
+def parse_rsvps(line: str) -> dict:
+    """Parse a line of text into a dictionary of RSVPs"""
+
+    attendees = {}
+
+    # Remove the type of RSVP
+    stripped_line = line.split(": ")[-1].split(", ")
+
+    # Strip the formatting from the user IDs
+    attending = [re.sub(r"<@|>", "", user) for user in stripped_line if user]
+
+    for user in attending:
+        if "+" in user:
+            raw_user_info = user.split("+")
+            user_info = [raw_user_info[0], int(raw_user_info[1])]
+
+            # If there's a + we need to account for the user as well
+            user_info[1] += 1
+        else:
+            user_info = [user, 1]
+
+        attendees[user_info[0]] = int(user_info[1])
+
+    return attendees
+
+
+def format_rsvps(attendees: dict) -> str:
+    """Format a dictionary of RSVPs into a string for Slack"""
+
+    formatted = ""
+
+    for user, count in attendees.items():
+        if count > 1:
+            formatted += f"<@{user}>+{count - 1}, "
+        else:
+            formatted += f"<@{user}>, "
+
+    formatted = formatted[:-2]
+
+    return formatted
+
+
+def count_rsvps(attendees: dict | None = None, line: str | None = None) -> int:
+    """Count the number of RSVPs in a line of text or a dictionary of RSVPs
+
+    If both are provided, the dictionary will be used"""
+
+    if attendees is None and line is None:
+        raise ValueError("Either attendees or line must be provided")
+
+    if attendees is not None:
+        return sum(attendees.values())
+
+    if line is not None:
+        attendees = parse_rsvps(line)
+        return sum(attendees.values())
+
+    return 0
