@@ -1,14 +1,9 @@
 import json
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pprint import pprint
 
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 from slack_bolt import App
 from slack_sdk.errors import SlackApiError
 
@@ -56,60 +51,97 @@ app = App(token=config["slack"]["bot_token"], logger=slack_logger)
 
 # Retrieve Google Calendar events
 
+for arg in sys.argv:
+    if "--manual" in arg and "=" in arg:
+        event_id = arg.split("=")[1].lower()
+        if event_id not in event_templates:
+            logger.error(f"Event ID {event_id} not found in events.json")
+            sys.exit(1)
 
-creds = Credentials.from_authorized_user_file(
-    "token.json", ["https://www.googleapis.com/auth/calendar.readonly"]
-)
-try:
-    service = build("calendar", "v3", credentials=creds)
+        # Check if a start time has been provided
+        for arg in sys.argv:
+            if "--start" in arg and "=" in arg:
+                start_time_raw = arg.split("=")[1]
+                try:
+                    start_time = datetime.fromtimestamp(int(start_time_raw))
+                except ValueError:
+                    logger.error("Invalid start time format. Use epoch time.")
+                    sys.exit(1)
+            else:
+                start_time = datetime.now(timezone.utc) + timedelta(
+                    days=event_templates[event_id]["days_before"] + 2
+                )
 
-    # Call the Calendar API
-    now = datetime.now(timezone.utc).isoformat()  # 'Z' indicates UTC time
-    events_result = (
-        service.events()  # type: ignore
-        .list(
-            calendarId=config["google"]["calendar_id"],
-            timeMin=now,
-            maxResults=30,
-            singleEvents=True,
-            orderBy="startTime",
-        )
-        .execute()
-    )
-    events = events_result.get("items", [])
-
-    if not events:
-        logger.info("No upcoming events found.")
-        sys.exit(1)
-
-    # Construct more useful event dict
-    formatted_events = []
-    for event in events:
-        start = event["start"].get("dateTime", event["start"].get("date"))
-        end = event["end"].get("dateTime", event["end"].get("date"))
-        if "description" not in event:
-            event["description"] = ""
-        # Add fake hours to all day events
-        if len(start) == 10:
-            start = start + "T00:00:00+08:00"
-        if len(end) == 10:
-            end = end + "T00:00:00+08:00"
-
-        # Calculate how many days until the event
-        start_datetime = datetime.fromisoformat(start)
-        days_until = (start_datetime - datetime.now(timezone.utc)).days
-
-        formatted_events.append(
+        formatted_events = [
             {
-                "start": datetime.fromisoformat(start),
-                "title": event["summary"],
-                "days_until": days_until,
+                "start": start_time,
+                "title": event_templates[event_id]["calendar_name"],
+                "days_until": event_templates[event_id].get(
+                    "days_before", config["days_before"]
+                ),
             }
-        )
+        ]
+        break
+else:
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from googleapiclient.discovery import build
+    from googleapiclient.errors import HttpError
 
-except HttpError:
-    logger.error("Error retrieving Google Calendar events")
-    sys.exit(1)
+    creds = Credentials.from_authorized_user_file(
+        "token.json", ["https://www.googleapis.com/auth/calendar.readonly"]
+    )
+    try:
+        service = build("calendar", "v3", credentials=creds)
+
+        # Call the Calendar API
+        now = datetime.now(timezone.utc).isoformat()  # 'Z' indicates UTC time
+        events_result = (
+            service.events()  # type: ignore
+            .list(
+                calendarId=config["google"]["calendar_id"],
+                timeMin=now,
+                maxResults=30,
+                singleEvents=True,
+                orderBy="startTime",
+            )
+            .execute()
+        )
+        events = events_result.get("items", [])
+
+        if not events:
+            logger.info("No upcoming events found.")
+            sys.exit(1)
+
+        # Construct more useful event dict
+        formatted_events = []
+        for event in events:
+            start = event["start"].get("dateTime", event["start"].get("date"))
+            end = event["end"].get("dateTime", event["end"].get("date"))
+            if "description" not in event:
+                event["description"] = ""
+            # Add fake hours to all day events
+            if len(start) == 10:
+                start = start + "T00:00:00+08:00"
+            if len(end) == 10:
+                end = end + "T00:00:00+08:00"
+
+            # Calculate how many days until the event
+            start_datetime = datetime.fromisoformat(start)
+            days_until = (start_datetime - datetime.now(timezone.utc)).days
+
+            formatted_events.append(
+                {
+                    "start": datetime.fromisoformat(start),
+                    "title": event["summary"],
+                    "days_until": days_until,
+                }
+            )
+
+    except HttpError:
+        logger.error("Error retrieving Google Calendar events")
+        sys.exit(1)
 
 for event in formatted_events:
     # Look for event templates with a title that matches the event
@@ -150,6 +182,21 @@ for event in formatted_events:
                 logger.error(f"Error posting message: {e.response['error']}")
                 logger.error(e.response)
                 pprint(blocks)
+
+            # Send admin tools as reply
+
+            try:
+                r = app.client.chat_postMessage(
+                    channel=channel,
+                    blocks=block_formatters.format_admin_tools(event=sending_event),
+                    text="Admin tools",
+                    thread_ts=response["ts"],
+                    username="Event RSVPs",
+                    icon_emoji=":calendar:",
+                )
+            except SlackApiError as e:
+                logger.error(f"Error posting message: {e.response['error']}")
+                logger.error(e.response)
 
             # Tag any event regulars in a reply to the event post
 
