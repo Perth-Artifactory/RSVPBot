@@ -131,7 +131,6 @@ def rsvp(ack, body):
 
     denied = False
     if start_time:
-        print(f"Start time: {start_time}")
         # Check if the event has already started
         if datetime.now() > start_time:
             denied = True
@@ -145,11 +144,10 @@ def rsvp(ack, body):
                 )
             except SlackApiError as e:
                 logger.error(f"Error posting ephemeral message: {e.response['error']}")
-            return
     if rsvp_time and not denied:
-        print(f"RSVP time: {rsvp_time}")
         # Check if the RSVP deadline has passed
         if datetime.now() > rsvp_time:
+            denied = True
             # Send an ephemeral message to the user
             try:
                 app.client.chat_postEphemeral(
@@ -160,7 +158,9 @@ def rsvp(ack, body):
                 )
             except SlackApiError as e:
                 logger.error(f"Error posting ephemeral message: {e.response['error']}")
-            return
+
+    if denied:
+        return
 
     original_message_blocks = body["message"]["blocks"]
     new_message_blocks = []
