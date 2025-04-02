@@ -150,6 +150,26 @@ def format_multi_rsvp_modal():
     return block_list
 
 
+def format_admin_tools(event) -> list[dict]:
+    """Format a message to display admin tools."""
+
+    block_list = []
+
+    block_list = add_block(block_list=block_list, block=blocks.text)
+    block_list = inject_text(
+        block_list=block_list,
+        text=strings.admin_tools,
+    )
+
+    # Add accessory button
+    block_list[-1]["accessory"] = copy(blocks.button)
+    block_list[-1]["accessory"]["text"]["text"] = "Admin"
+    block_list[-1]["accessory"]["value"] = ",".join(event.get("hosts", ["XXX"]))
+    block_list[-1]["accessory"]["action_id"] = "admin_event"
+
+    return block_list
+
+
 def inject_text(block_list: list, text: str) -> list[dict]:
     """Injects text into the last block in the block list and returns the updated list.
 

@@ -439,6 +439,15 @@ def multi_rsvp_submit(ack, body, logger):
         logger.error(f"Error posting message: {e.response['error']}")
 
 
+@app.action("admin_event")
+def admin_event(ack, body):
+    ack()
+    # Delete the original message via the response_url
+
+    # Get the original message this message was replied to
+    pprint(body)
+
+
 @app.action("nevermind")
 def close_eph(ack, body):
     ack()
