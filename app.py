@@ -155,7 +155,6 @@ def rsvp(ack, body):
             ts=body["message"]["ts"],
             blocks=blocks,
             text=body["message"]["text"],
-            icon_emoji=":calendar:",
         )
     except SlackApiError as e:
         logger.error(f"Error updating message: {e.response['error']}")
@@ -192,7 +191,6 @@ def remove_rsvp(ack, body):
             ts=ts,
             blocks=blocks,
             text=message["text"],
-            icon_emoji=":calendar:",
         )
     except SlackApiError as e:
         logger.error(f"Error updating message: {e.response['error']}")
@@ -255,7 +253,6 @@ def other_rsvp(ack, body):
             ts=ts,
             blocks=blocks,
             text=message["text"],
-            icon_emoji=":calendar:",
         )
     except SlackApiError as e:
         logger.error(f"Error updating message: {e.response['error']}")
@@ -348,7 +345,6 @@ def multi_rsvp_submit(ack, body, logger):
             ts=ts,
             blocks=blocks,
             text=message["text"],
-            icon_emoji=":calendar:",
         )
     except SlackApiError as e:
         logger.error(f"Error updating message: {e.response['error']}")
@@ -389,7 +385,6 @@ def multi_rsvp_submit(ack, body, logger):
             channel=channel,
             thread_ts=ts,
             text=f"{', '.join([f'<@{user_id}>' for user_id in added])} RSVP'd as {attend_type} by <@{user}>",
-            icon_emoji=":calendar:",
         )
     except SlackApiError as e:
         logger.error(f"Error posting message: {e.response['error']}")

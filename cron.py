@@ -187,7 +187,6 @@ for event in formatted_events:
                         blocks=blocks,
                         text=f"RSVP for {converted_event['title']}!",
                         username="Event RSVPs",
-                        icon_emoji=":calendar:",
                     )
                 except SlackApiError as e:
                     logger.error(f"Error posting message: {e.response['error']}")
@@ -205,7 +204,6 @@ for event in formatted_events:
                         text="Admin tools",
                         thread_ts=response["ts"],
                         username="Event RSVPs",
-                        icon_emoji=":calendar:",
                     )
                 except SlackApiError as e:
                     logger.error(f"Error posting message: {e.response['error']}")
@@ -225,7 +223,6 @@ for event in formatted_events:
                                 regulars_str=regulars_str,
                             ),
                             thread_ts=response["ts"],
-                            icon_emoji=":calendar:",
                         )
                     except SlackApiError as e:
                         logger.error(f"Error posting message: {e.response['error']}")
