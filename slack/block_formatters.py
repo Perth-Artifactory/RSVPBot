@@ -70,7 +70,7 @@ def format_event(event: dict) -> list[dict]:
 
     # Construct RSVPs
     rsvp_sections = []
-    for option in event["rsvp_options"]:
+    for option in event.get("rsvp_options", ["Attending"]):
         rsvp_sections = add_block(block_list=rsvp_sections, block=blocks.text)
         rsvp_sections[-1]["text"]["text"] = f"*{option}*: "
         rsvp_sections[-1]["block_id"] = f"RSVP_{option}"
