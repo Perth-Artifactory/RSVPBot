@@ -29,4 +29,11 @@ Manage RSVPs for events from Slack
 ## Running
 
 * Run `app.py` however you want
-* Run `cron.py` on a daily schedule to post new events
+* Run `cron.py` on a daily schedule to post new events, `--debug` to enable debug logging 
+
+### Manual event creation
+
+Events can be manually created via `cron.py`
+
+* `--manual=[eventid]` Use the key from an event specified in `events.json` as the `eventid`
+* `--start=[epoch_time]` Specify a start time for the event. If no start time is specified the event will be assumed to be now + 2 days + the days_before offset specified in `events.json`/default: `4`
