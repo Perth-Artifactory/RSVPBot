@@ -86,52 +86,17 @@ if clear:
 
     logging.info(f"Deleted {deleted} messages")
 
-# Send demo messages
-posting = False
-if posting:
-    for event_id in events:
-        event = events[event_id]
-        blocks = block_formatters.format_event(event)
-        try:
-            app.client.chat_postMessage(
-                channel=config["slack"]["rsvp_channel"],
-                blocks=blocks,
-                text=f"RSVP for {event['title']}!",
-                icon_emoji=":calendar:",
-            )
-        except SlackApiError as e:
-            logger.error(f"Error posting message: {e.response['error']}")
-            pprint(blocks)
-
 
 @app.action(re.compile(r"^rsvp_.*"))
 def rsvp(ack, body):
     ack()
 
-    # Look for the event start time and/or RSVP deadline
-
-    rsvp_time = None
-    start_time = None
-    for block in body["message"]["blocks"]:
-        if block.get("fields"):
-            time_pattern = re.compile(r"\^(\d+)\^")
-            for field in block["fields"]:
-                if field["text"].startswith("*When:*"):
-                    start_time_matches = re.search(time_pattern, field["text"])
-                    if start_time_matches:
-                        # Convert the epoch time to a datetime object
-                        start_time = datetime.fromtimestamp(
-                            int(start_time_matches.group(1))
-                        )
-                if field["text"].startswith("*RSVP by:*"):
-                    rsvp_time_matches = re.search(time_pattern, field["text"])
-                    if rsvp_time_matches:
-                        rsvp_time = datetime.fromtimestamp(
-                            int(rsvp_time_matches.group(1))
-                        )
+    # Parse event data from the post back into a dictionary
+    event = misc.parse_event(body["message"]["blocks"])
 
     denied = False
-    if start_time:
+    if event.get("start"):
+        start_time: datetime = event["start"]
         # Check if the event has already started
         if datetime.now() > start_time:
             denied = True
@@ -145,7 +110,8 @@ def rsvp(ack, body):
                 )
             except SlackApiError as e:
                 logger.error(f"Error posting ephemeral message: {e.response['error']}")
-    if rsvp_time and not denied:
+    if event.get("rsvp_deadline") and not denied:
+        rsvp_time: datetime = event["rsvp_deadline"]
         # Check if the RSVP deadline has passed
         if datetime.now() > rsvp_time:
             denied = True
