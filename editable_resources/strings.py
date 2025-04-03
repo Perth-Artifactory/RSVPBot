@@ -16,3 +16,4 @@ rsvp_slack_added = (
     "The following {user_plural} been added to the RSVP list:\n{user_list}"
 )
 rsvp_slack_not_added = "The following {user_plural} already attending:\n{user_list}"
+not_host = "You are not listed as a host for this event. Please contact the event host if you need to make changes."

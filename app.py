@@ -401,6 +401,7 @@ def admin_event(ack, body):
 
     # Get the original message this message was replied to
     ts = body["container"]["thread_ts"]
+    user = body["user"]["id"]
 
     message = app.client.conversations_history(
         channel=body["channel"]["id"], inclusive=True, oldest=ts, limit=1
@@ -410,8 +411,44 @@ def admin_event(ack, body):
     # Get event data
     event = misc.parse_event(message["blocks"])
 
-    # Spit the event data to the console as a test
-    pprint(event)
+    # Check if the user is an event host
+    if user in event.get("hosts", []):
+        # User is an event host, send them a modal with the event data
+        try:
+            app.client.views_open(
+                trigger_id=body["trigger_id"],
+                view={
+                    "type": "modal",
+                    "callback_id": "admin_event",
+                    "title": {"type": "plain_text", "text": "Event Details"},
+                    "blocks": block_formatters.simple_modal_blocks(
+                        text="yay you could do things if there were things to be done"
+                    ),
+                    "close": {"type": "plain_text", "text": "Cancel"},
+                },
+            )
+        except SlackApiError as e:
+            logger.error(f"Error opening modal: {e.response['error']}")
+            logger.error(e.response)
+    else:
+        # User is not an event host, send them a modal with the event data
+        try:
+            app.client.views_open(
+                trigger_id=body["trigger_id"],
+                view={
+                    "type": "modal",
+                    "callback_id": "not_event_host",
+                    "title": {"type": "plain_text", "text": "Not an Event Host"},
+                    "blocks": block_formatters.simple_modal_blocks(
+                        text=strings.not_host
+                    ),
+                    "close": {"type": "plain_text", "text": "Close"},
+                    "clear_on_close": True,
+                },
+            )
+        except SlackApiError as e:
+            logger.error(f"Error opening modal: {e.response['error']}")
+            logger.error(e.response)
 
 
 # Start the app
