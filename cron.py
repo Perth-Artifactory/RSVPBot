@@ -64,6 +64,7 @@ for arg in sys.argv:
     if "--manual" in arg and "=" in arg:
         manual = True
         event_id = arg.split("=")[1].lower()
+        logger.info(f"Manual mode enabled for event ID: {event_id}")
         if event_id not in event_templates:
             logger.error(f"Event ID {event_id} not found in events.json")
             sys.exit(1)
@@ -74,16 +75,19 @@ for arg in sys.argv:
                 start_time_raw = arg.split("=")[1]
                 try:
                     start_time = datetime.fromtimestamp(int(start_time_raw))
+                    logger.info(f"Start time overridden to {start_time}")
+                    break
                 except ValueError:
                     logger.error("Invalid start time format. Use epoch time.")
                     sys.exit(1)
-            else:
-                start_time = datetime.now(timezone.utc) + timedelta(
-                    days=event_templates[event_id].get(
-                        "days_before", config["days_before"]
-                    )
-                    + 2
-                )
+        else:
+            start_time = datetime.now(timezone.utc) + timedelta(
+                days=event_templates[event_id].get("days_before", config["days_before"])
+                + 2
+            )
+            logger.info(
+                f"Start time not provided. Using default start time (days_before+2): {start_time}"
+            )
 
         formatted_events = [
             {
