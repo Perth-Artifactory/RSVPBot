@@ -11,13 +11,22 @@ from slack import block_formatters
 from editable_resources import strings
 
 # Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    handlers=[
-        logging.FileHandler("app.log", mode="a"),
-        logging.StreamHandler(sys.stdout),
-    ],
-)
+if "--debug" in sys.argv:
+    logging.basicConfig(
+        level=logging.DEBUG,
+        handlers=[
+            logging.FileHandler("app.debug.log", mode="a"),
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
+else:
+    logging.basicConfig(
+        level=logging.INFO,
+        handlers=[
+            logging.FileHandler("app.log", mode="a"),
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
 # Set urllib3 logging level to INFO to reduce noise when individual modules are set to debug
 urllib3_logger = logging.getLogger("urllib3")
 urllib3_logger.setLevel(logging.INFO)
