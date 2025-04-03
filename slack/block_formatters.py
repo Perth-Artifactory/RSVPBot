@@ -17,10 +17,12 @@ def format_event(event: dict) -> list[dict]:
 
     block_list = add_block(block_list=block_list, block=blocks.header)
     block_list = inject_text(block_list=block_list, text=f"{event['title']} RSVP")
+    block_list[-1]["block_id"] = "title"
     block_list = add_block(block_list=block_list, block=blocks.text)
     block_list = inject_text(
         block_list=block_list, text=event.get("description", "Come on down!")
     )
+    block_list[-1]["block_id"] = "description"
 
     # Construct info fields
     info_fields = []
@@ -34,7 +36,7 @@ def format_event(event: dict) -> list[dict]:
     start_time = event["start"] + timedelta(hours=event["event_offset"])
 
     info_fields[-1]["text"] = (
-        f"*When:* <!date^{int(start_time.timestamp())}^{{time}} {{date_long_pretty}}|{start_time.strftime('%A, %B %d, %Y %I:%M %p')}>"
+        f"*When*: <!date^{int(start_time.timestamp())}^{{time}} {{date_long_pretty}}|{start_time.strftime('%A, %B %d, %Y %I:%M %p')}>"
     )
 
     if event.get("rsvp_deadline"):

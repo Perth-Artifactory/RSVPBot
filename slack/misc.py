@@ -3,10 +3,12 @@ import logging
 from pprint import pprint
 import requests
 import re
+from datetime import datetime
 
 import jsonschema
 
 import slack_bolt as bolt
+from collections import OrderedDict
 import slack_sdk.errors
 
 # Set up logging
@@ -283,3 +285,49 @@ def count_rsvps(attendees: dict | None = None, line: str | None = None) -> int:
         return sum(attendees.values())
 
     return 0
+
+
+def parse_event(blocks: dict) -> dict:
+    """Parse a list of Slack blocks into a dictionary of event data"""
+    event = {}
+    event["rsvps"] = OrderedDict()
+
+    time_pattern = re.compile(r"\^(\d+)\^")
+
+    for block in blocks:
+        if block["block_id"] == "title":
+            event["title"] = block["text"]["text"].split(" RSVP")[0].strip()
+        elif block["block_id"] == "description":
+            event["description"] = block["text"]["text"]
+            for field in block["fields"]:
+                if field["text"].startswith("*When*:"):
+                    time_matches = re.search(time_pattern, field["text"])
+                    if time_matches:
+                        # Convert the epoch time to a datetime object
+                        event["start"] = datetime.fromtimestamp(
+                            int(time_matches.group(1))
+                        )
+                elif field["text"].startswith("*RSVP by*:"):
+                    time_matches = re.search(time_pattern, field["text"])
+                    if time_matches:
+                        # Convert the epoch time to a datetime object
+                        event["rsvp_deadline"] = datetime.fromtimestamp(
+                            int(time_matches.group(1))
+                        )
+                elif field["text"].startswith("*Host"):
+                    event["hosts"] = [
+                        user.strip("<>@")
+                        for user in field["text"].split(": ")[1].split(", ")
+                    ]
+                elif field["text"].startswith("*Price*:"):
+                    event["price"] = field["text"].split(": ")[1]
+
+            if block.get("accessory"):
+                event["image"] = block["accessory"]["image_url"]
+
+        elif block["block_id"].startswith("RSVP_"):
+            event["rsvps"][block["block_id"].replace("RSVP_", "")] = parse_rsvps(
+                line=block["text"]["text"]
+            )
+
+    return event

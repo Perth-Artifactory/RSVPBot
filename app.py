@@ -445,7 +445,17 @@ def admin_event(ack, body):
     # Delete the original message via the response_url
 
     # Get the original message this message was replied to
-    pprint(body)
+    ts = body["container"]["thread_ts"]
+
+    message = app.client.conversations_history(
+        channel=body["channel"]["id"], inclusive=True, oldest=ts, limit=1
+    )
+    message = message["messages"][0]
+
+    # Get event data
+    pprint(message["blocks"])
+    event = misc.parse_event(message["blocks"])
+    pprint(event)
 
 
 @app.action("nevermind")
