@@ -93,7 +93,7 @@ def format_event(event: dict) -> list[dict]:
     return block_list
 
 
-def format_already_rsvp(ts, attend_type):
+def modal_rsvp_options(ts, attend_type, channel):
     """Format a message to display that the user has already RSVP'd."""
 
     block_list = []
@@ -107,23 +107,27 @@ def format_already_rsvp(ts, attend_type):
     block_list[-1]["elements"][-1]["text"]["text"] = strings.personal_rsvp
     block_list[-1]["elements"][-1]["action_id"] = "other_rsvp"
     block_list[-1]["elements"][-1]["style"] = "primary"
-    block_list[-1]["elements"][-1]["value"] = f"{ts}-{attend_type}"
+    block_list[-1]["elements"][-1]["value"] = f"{ts}-{attend_type}-{channel}"
 
     block_list[-1]["elements"].append(copy(blocks.button))
     block_list[-1]["elements"][-1]["text"]["text"] = strings.slack_rsvp
     block_list[-1]["elements"][-1]["action_id"] = "other_slack_rsvp"
-    block_list[-1]["elements"][-1]["value"] = f"{ts}-{attend_type}"
+    block_list[-1]["elements"][-1]["value"] = f"{ts}-{attend_type}-{channel}"
 
     block_list[-1]["elements"].append(copy(blocks.button))
     block_list[-1]["elements"][-1]["text"]["text"] = strings.remove_rsvp
     block_list[-1]["elements"][-1]["style"] = "danger"
     block_list[-1]["elements"][-1]["action_id"] = "remove_rsvp"
-    block_list[-1]["elements"][-1]["value"] = f"{ts}-{attend_type}"
+    block_list[-1]["elements"][-1]["value"] = f"{ts}-{attend_type}-{channel}"
 
-    block_list[-1]["elements"].append(copy(blocks.button))
-    block_list[-1]["elements"][-1]["text"]["text"] = "Close"
-    block_list[-1]["elements"][-1]["action_id"] = "nevermind"
-    block_list[-1]["elements"][-1]["value"] = f"{ts}-{attend_type}"
+    return block_list
+
+
+def simple_modal_blocks(text: str) -> list[dict]:
+    """Format the blocks for a simple modal that displays one block of text."""
+
+    block_list = add_block(block_list=[], block=blocks.text)
+    block_list = inject_text(block_list=block_list, text=text)
 
     return block_list
 

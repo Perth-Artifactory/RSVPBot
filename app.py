@@ -54,38 +54,6 @@ except FileNotFoundError:
 # Set up slack client
 app = App(token=config["slack"]["bot_token"], logger=slack_logger)
 
-# Clear channel
-clear = False
-if clear:
-    # Delete all messages in the RSVP channel
-
-    logging.info("Clearing RSVP channel")
-
-    # Initiate a connection with our admin token
-    admin_app = App(token=config["slack"]["user_token"])
-
-    logging.info(f"Reconnected to Slack as {admin_app.client.auth_test()['user_id']}")
-
-    deleted = 0
-
-    try:
-        response = app.client.conversations_history(
-            channel=config["slack"]["rsvp_channel"], limit=1000
-        )
-        for message in response["messages"]:
-            try:
-                admin_app.client.chat_delete(
-                    channel=config["slack"]["rsvp_channel"], ts=message["ts"]
-                )
-                deleted += 1
-            except SlackApiError as e:
-                logger.error(f"Error deleting message: {e.response['error']}")
-    except SlackApiError as e:
-        logger.error(f"Error getting messages: {e.response['error']}")
-        logger.error(e.response)
-
-    logging.info(f"Deleted {deleted} messages")
-
 
 @app.action(re.compile(r"^rsvp_.*"))
 def rsvp(ack, body):
@@ -100,31 +68,47 @@ def rsvp(ack, body):
         # Check if the event has already started
         if datetime.now() > start_time:
             denied = True
-            # Send an ephemeral message to the user
+            # Send a notice to the user
             try:
-                app.client.chat_postEphemeral(
-                    channel=body["channel"]["id"],
-                    user=body["user"]["id"],
-                    text=strings.event_started,
-                    icon_emoji=":calendar:",
+                app.client.views_open(
+                    trigger_id=body["trigger_id"],
+                    view={
+                        "type": "modal",
+                        "callback_id": "event_started",
+                        "title": {"type": "plain_text", "text": "Event Started"},
+                        "blocks": block_formatters.simple_modal_blocks(
+                            text=strings.event_started
+                        ),
+                        "close": {"type": "plain_text", "text": "Close"},
+                        "clear_on_close": True,
+                    },
                 )
             except SlackApiError as e:
-                logger.error(f"Error posting ephemeral message: {e.response['error']}")
+                logger.error(f"Error opening modal: {e.response['error']}")
+                logger.error(e.response)
     if event.get("rsvp_deadline") and not denied:
         rsvp_time: datetime = event["rsvp_deadline"]
         # Check if the RSVP deadline has passed
         if datetime.now() > rsvp_time:
             denied = True
-            # Send an ephemeral message to the user
+            # Send a notice to the user
             try:
-                app.client.chat_postEphemeral(
-                    channel=body["channel"]["id"],
-                    user=body["user"]["id"],
-                    text=strings.rsvp_deadline_passed,
-                    icon_emoji=":calendar:",
+                app.client.views_open(
+                    trigger_id=body["trigger_id"],
+                    view={
+                        "type": "modal",
+                        "callback_id": "rsvp_deadline_passed",
+                        "title": {"type": "plain_text", "text": "RSVP Deadline Passed"},
+                        "blocks": block_formatters.simple_modal_blocks(
+                            text=strings.rsvp_deadline_passed
+                        ),
+                        "close": {"type": "plain_text", "text": "Close"},
+                        "clear_on_close": True,
+                    },
                 )
             except SlackApiError as e:
-                logger.error(f"Error posting ephemeral message: {e.response['error']}")
+                logger.error(f"Error opening modal: {e.response['error']}")
+                logger.error(e.response)
 
     if denied:
         return
@@ -133,25 +117,30 @@ def rsvp(ack, body):
     user = body["user"]["id"]
 
     if user in event["rsvp_options"][rsvp_option]:
-        # User is already attending, send them an ephemeral message instead
-        logging.info("User has already RSVP'd, sending ephemeral message options")
+        # User is already attending, send them a modal instead
+        logging.info("User has already RSVP'd, sending modal with extra options")
 
-        eph_blocks = block_formatters.format_already_rsvp(
-            ts=body["message"]["ts"], attend_type=rsvp_option
+        option_blocks = block_formatters.modal_rsvp_options(
+            ts=body["message"]["ts"],
+            attend_type=rsvp_option,
+            channel=body["channel"]["id"],
         )
 
-        # Send an ephemeral message to the user
+        # Open a new modal
         try:
-            app.client.chat_postEphemeral(
-                channel=body["channel"]["id"],
-                user=user,
-                blocks=eph_blocks,
-                text=strings.already_rsvpd,
-                icon_emoji=":calendar:",
+            app.client.views_open(
+                trigger_id=body["trigger_id"],
+                view={
+                    "type": "modal",
+                    "callback_id": "rsvp_modal",
+                    "title": {"type": "plain_text", "text": "RSVP Options"},
+                    "blocks": option_blocks,
+                    "close": {"type": "plain_text", "text": "Cancel"},
+                },
             )
         except SlackApiError as e:
-            logger.error(f"Error posting ephemeral message: {e.response['error']}")
-            pprint(eph_blocks)
+            logger.error(f"Error opening modal: {e.response['error']}")
+            logger.error(e.response)
 
     else:
         event["rsvp_options"][rsvp_option][user] = 1
@@ -173,15 +162,15 @@ def rsvp(ack, body):
 
 
 @app.action("remove_rsvp")
-def remove_rsvp(ack, body, respond):
+def remove_rsvp(ack, body):
     ack()
     # Get the info from the button
-    ts, attend_type = body["actions"][0]["value"].split("-")
+    ts, attend_type, channel = body["actions"][0]["value"].split("-")
     user = body["user"]["id"]
 
     # Retrieve the actual message we care about
     result = app.client.conversations_history(
-        channel=body["channel"]["id"], inclusive=True, oldest=ts, limit=1
+        channel=channel, inclusive=True, oldest=ts, limit=1
     )
 
     message = result["messages"][0]
@@ -199,7 +188,7 @@ def remove_rsvp(ack, body, respond):
     # Update the message
     try:
         app.client.chat_update(
-            channel=body["channel"]["id"],
+            channel=channel,
             ts=ts,
             blocks=blocks,
             text=message["text"],
@@ -208,19 +197,41 @@ def remove_rsvp(ack, body, respond):
     except SlackApiError as e:
         logger.error(f"Error updating message: {e.response['error']}")
 
-    respond("RSVP removed!")
+    # Push a new modal to the user letting them know their RSVP was removed
+    try:
+        app.client.views_push(
+            trigger_id=body["trigger_id"],
+            view={
+                "type": "modal",
+                "callback_id": "rsvp_removed",
+                "title": {"type": "plain_text", "text": "RSVP Removed"},
+                "blocks": block_formatters.simple_modal_blocks(
+                    text=strings.rsvp_removed.format(
+                        timestamp=int(event["rsvp_deadline"].timestamp()),
+                        time_formatted=event["rsvp_deadline"].strftime(
+                            "%A, %B %d, %Y %I:%M %p"
+                        ),
+                    )
+                ),
+                "close": {"type": "plain_text", "text": "Close"},
+                "clear_on_close": True,
+            },
+        )
+    except SlackApiError as e:
+        logger.error(f"Error opening modal: {e.response['error']}")
+        logger.error(e.response)
 
 
 @app.action("other_rsvp")
-def other_rsvp(ack, body, respond):
+def other_rsvp(ack, body):
     ack()
-    ts, attend_type = body["actions"][0]["value"].split("-")
+    ts, attend_type, channel = body["actions"][0]["value"].split("-")
     user = body["user"]["id"]
 
     # Retrieve the actual message we care about
 
     result = app.client.conversations_history(
-        channel=body["channel"]["id"], inclusive=True, oldest=ts, limit=1
+        channel=channel, inclusive=True, oldest=ts, limit=1
     )
 
     message = result["messages"][0]
@@ -240,7 +251,7 @@ def other_rsvp(ack, body, respond):
     # Update the message
     try:
         app.client.chat_update(
-            channel=body["channel"]["id"],
+            channel=channel,
             ts=ts,
             blocks=blocks,
             text=message["text"],
@@ -249,22 +260,35 @@ def other_rsvp(ack, body, respond):
     except SlackApiError as e:
         logger.error(f"Error updating message: {e.response['error']}")
 
-    respond("RSVP added!")
+    # Push a new modal to the user letting them know their RSVP was added
+    try:
+        app.client.views_push(
+            trigger_id=body["trigger_id"],
+            view={
+                "type": "modal",
+                "callback_id": "rsvp_added",
+                "title": {"type": "plain_text", "text": "RSVP Added"},
+                "blocks": block_formatters.simple_modal_blocks(
+                    text=strings.rsvp_added.format(
+                        rsvp_count=event["rsvp_options"][attend_type][user]
+                    )
+                ),
+                "close": {"type": "plain_text", "text": "Close"},
+                "clear_on_close": True,
+            },
+        )
+    except SlackApiError as e:
+        logger.error(f"Error opening modal: {e.response['error']}")
+        logger.error(e.response)
 
 
 @app.action("other_slack_rsvp")
-def modal_other_slack_rsvp(ack, body, respond):
+def modal_other_slack_rsvp(ack, body):
     ack()
-
-    # Delete the original message via the response_url
-    try:
-        requests.post(body["response_url"], json={"delete_original": True})
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error deleting original message: {e}")
 
     blocks = block_formatters.format_multi_rsvp_modal()
     try:
-        app.client.views_open(
+        app.client.views_push(
             trigger_id=body["trigger_id"],
             view={
                 "type": "modal",
@@ -273,7 +297,8 @@ def modal_other_slack_rsvp(ack, body, respond):
                 "blocks": blocks,
                 "submit": {"type": "plain_text", "text": "RSVP"},
                 "close": {"type": "plain_text", "text": "Cancel"},
-                "private_metadata": f"{body['actions'][0]['value']}-{body['channel']['id']}",
+                "private_metadata": body["actions"][0]["value"],
+                "clear_on_close": True,
             },
         )
     except SlackApiError as e:
@@ -305,10 +330,13 @@ def multi_rsvp_submit(ack, body, logger):
 
     # Add users to the event if they have not already RSVP'd, do nothing if they have
     added = []
+    not_added = []
     for prospective_attendee in other_attendees:
         if prospective_attendee not in event["rsvp_options"][attend_type]:
             event["rsvp_options"][attend_type][prospective_attendee] = 1
             added.append(prospective_attendee)
+        else:
+            not_added.append(prospective_attendee)
 
     # Convert the event back into blocks
     blocks = block_formatters.format_event(event=event)
@@ -325,19 +353,35 @@ def multi_rsvp_submit(ack, body, logger):
     except SlackApiError as e:
         logger.error(f"Error updating message: {e.response['error']}")
 
-    # Post a new ephemeral message to the user
-    eph_message = f"RSVP added for: {', '.join([f'<@{user_id}>' for user_id in added])}"
-    if len(added) == 0:
-        eph_message = strings.no_rsvps_added
+    # Push a new modal to the user letting them know their RSVP was removed
+    modal_text = ""
+    if added:
+        modal_text = strings.rsvp_slack_added.format(
+            user_plural="users have" if len(added) > 1 else "user has",
+            user_list=", ".join([f"<@{user_id}>" for user_id in added]),
+        )
+
+    if not_added:
+        modal_text += "\n" + strings.rsvp_slack_not_added.format(
+            user_plural="users were" if len(not_added) > 1 else "user was",
+            user_list=", ".join([f"<@{user_id}>" for user_id in not_added]),
+        )
+
     try:
-        app.client.chat_postEphemeral(
-            channel=channel,
-            user=user,
-            text=eph_message,
-            icon_emoji=":calendar:",
+        app.client.views_update(
+            view_id=body["view"]["previous_view_id"],
+            view={
+                "type": "modal",
+                "callback_id": "rsvp_added",
+                "title": {"type": "plain_text", "text": "RSVP Added"},
+                "blocks": block_formatters.simple_modal_blocks(text=modal_text),
+                "close": {"type": "plain_text", "text": "Close"},
+                "clear_on_close": True,
+            },
         )
     except SlackApiError as e:
-        logger.error(f"Error posting ephemeral message: {e.response['error']}")
+        logger.error(f"Error opening modal: {e.response['error']}")
+        logger.error(e.response)
 
     # Attach an audit message to the original message
     try:
@@ -368,15 +412,6 @@ def admin_event(ack, body):
 
     # Spit the event data to the console as a test
     pprint(event)
-
-
-@app.action("nevermind")
-def close_eph(ack, body):
-    ack()
-    try:
-        requests.post(body["response_url"], json={"delete_original": True})
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error deleting original message: {e}")
 
 
 # Start the app

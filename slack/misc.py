@@ -247,7 +247,7 @@ def count_rsvps(attendees: dict | None = None, line: str | None = None) -> int:
 def parse_event(blocks: dict) -> dict:
     """Parse a list of Slack blocks into a dictionary of event data"""
     event = {}
-    event["rsvps"] = OrderedDict()
+    event["rsvp_options"] = OrderedDict()
 
     time_pattern = re.compile(r"\^(\d+)\^")
 
@@ -283,7 +283,7 @@ def parse_event(blocks: dict) -> dict:
                 event["image"] = block["accessory"]["image_url"]
 
         elif block["block_id"].startswith("RSVP_"):
-            event["rsvps"][block["block_id"].replace("RSVP_", "")] = parse_rsvps(
+            event["rsvp_options"][block["block_id"].replace("RSVP_", "")] = parse_rsvps(
                 line=block["text"]["text"]
             )
 
