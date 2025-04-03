@@ -10,7 +10,7 @@ Manage RSVPs for events from Slack
 ### Event template fields
 
 > [!NOTE]  
-> Nested events are RSVPable events that occur *within* another event and do not need to share the parent event title or start time.
+> Nested events are RSVPable events that occur *within* another event and do not need to share the parent event title or start time. An example would be a lunch RSVP that starts one hour into another event.
 
 * `calendar_name`: *(required)* The name of the event on Google Calendar. This will be used to automatically post RSVPs for new events.
 * `title`: *(optional | default: `calendar_name`)* The name of the event as you want it to appear in Slack. Will default to `calendar_name` if not specified. This is used for nested events.
