@@ -58,7 +58,7 @@ def check_for_empty_text(block: dict, logger: logging.Logger) -> bool:
             logger.error(f"Empty text field found in block {block}")
             return False
         if isinstance(value, dict):
-            if not check_for_empty_text(value, logger):
+            if not check_for_empty_text(block=value, logger=logger):
                 return False
     return True
 
