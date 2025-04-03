@@ -50,9 +50,10 @@ except FileNotFoundError:
 app = App(token=config["slack"]["bot_token"], logger=slack_logger)
 
 # Retrieve Google Calendar events
-
+manual = False
 for arg in sys.argv:
     if "--manual" in arg and "=" in arg:
+        manual = True
         event_id = arg.split("=")[1].lower()
         if event_id not in event_templates:
             logger.error(f"Event ID {event_id} not found in events.json")
@@ -69,7 +70,10 @@ for arg in sys.argv:
                     sys.exit(1)
             else:
                 start_time = datetime.now(timezone.utc) + timedelta(
-                    days=event_templates[event_id]["days_before"] + 2
+                    days=event_templates[event_id].get(
+                        "days_before", config["days_before"]
+                    )
+                    + 2
                 )
 
         formatted_events = [
@@ -144,75 +148,78 @@ else:
         sys.exit(1)
 
 for event in formatted_events:
+    logger.debug(f"Checking event: {event['title']}")
     # Look for event templates with a title that matches the event
     for template_event_id in event_templates:
         template_event = event_templates[template_event_id]
-        if (
-            template_event["calendar_name"] == event["title"]
-            and template_event.get("days_before", config["days_before"])
-            == event["days_until"]
-        ):
-            sending_event = template_event
-            sending_event["start"] = event["start"]
+        if template_event["calendar_name"] == event["title"]:
+            logger.debug(f"Found event template: {template_event_id}")
+            if (
+                template_event.get("days_before", config["days_before"])
+                == event["days_until"]
+                or manual
+            ):
+                sending_event = template_event
+                sending_event["start"] = event["start"]
 
-            if not sending_event.get("title"):
-                sending_event["title"] = event["title"]
+                if not sending_event.get("title"):
+                    sending_event["title"] = event["title"]
 
-            if not sending_event.get("rsvp_deadline"):
-                sending_event["rsvp_deadline"] = 0
+                if not sending_event.get("rsvp_deadline"):
+                    sending_event["rsvp_deadline"] = 0
 
-            if not sending_event.get("event_offset"):
-                sending_event["event_offset"] = 0
+                if not sending_event.get("event_offset"):
+                    sending_event["event_offset"] = 0
 
-            blocks = block_formatters.format_event(sending_event)
+                blocks = block_formatters.format_event(sending_event)
 
-            channel = sending_event.get(
-                "channel_override", config["slack"]["rsvp_channel"]
-            )
-
-            try:
-                response = app.client.chat_postMessage(
-                    channel=channel,
-                    blocks=blocks,
-                    text=f"RSVP for {sending_event['title']}!",
-                    username="Event RSVPs",
-                    icon_emoji=":calendar:",
+                channel = sending_event.get(
+                    "channel_override", config["slack"]["rsvp_channel"]
                 )
-            except SlackApiError as e:
-                logger.error(f"Error posting message: {e.response['error']}")
-                logger.error(e.response)
-                pprint(blocks)
 
-            # Send admin tools as reply
-
-            try:
-                r = app.client.chat_postMessage(
-                    channel=channel,
-                    blocks=block_formatters.format_admin_tools(event=sending_event),
-                    text="Admin tools",
-                    thread_ts=response["ts"],
-                    username="Event RSVPs",
-                    icon_emoji=":calendar:",
-                )
-            except SlackApiError as e:
-                logger.error(f"Error posting message: {e.response['error']}")
-                logger.error(e.response)
-
-            # Tag any event regulars in a reply to the event post
-
-            if sending_event.get("regulars", []):
-                regulars = sending_event["regulars"]
-                regulars_str = ", ".join([f"<@{r}>" for r in regulars])
                 try:
-                    r = app.client.chat_postMessage(
+                    response = app.client.chat_postMessage(
                         channel=channel,
-                        text=strings.regular_ping.format(
-                            title=sending_event["title"],
-                            regulars_str=regulars_str,
-                        ),
-                        thread_ts=response["ts"],
+                        blocks=blocks,
+                        text=f"RSVP for {sending_event['title']}!",
+                        username="Event RSVPs",
                         icon_emoji=":calendar:",
                     )
                 except SlackApiError as e:
                     logger.error(f"Error posting message: {e.response['error']}")
                     logger.error(e.response)
+                    pprint(blocks)
+
+                # Send admin tools as reply
+
+                try:
+                    r = app.client.chat_postMessage(
+                        channel=channel,
+                        blocks=block_formatters.format_admin_tools(event=sending_event),
+                        text="Admin tools",
+                        thread_ts=response["ts"],
+                        username="Event RSVPs",
+                        icon_emoji=":calendar:",
+                    )
+                except SlackApiError as e:
+                    logger.error(f"Error posting message: {e.response['error']}")
+                    logger.error(e.response)
+
+                # Tag any event regulars in a reply to the event post
+
+                if sending_event.get("regulars", []):
+                    regulars = sending_event["regulars"]
+                    regulars_str = ", ".join([f"<@{r}>" for r in regulars])
+                    try:
+                        r = app.client.chat_postMessage(
+                            channel=channel,
+                            text=strings.regular_ping.format(
+                                title=sending_event["title"],
+                                regulars_str=regulars_str,
+                            ),
+                            thread_ts=response["ts"],
+                            icon_emoji=":calendar:",
+                        )
+                    except SlackApiError as e:
+                        logger.error(f"Error posting message: {e.response['error']}")
+                        logger.error(e.response)
