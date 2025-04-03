@@ -286,6 +286,8 @@ def parse_event(blocks: dict) -> dict:
             event["rsvp_options"][block["block_id"].replace("RSVP_", "")] = parse_rsvps(
                 line=block["text"]["text"]
             )
+    if "rsvp_deadline" not in event:
+        event["rsvp_deadline"] = event["start"]
 
     return event
 
