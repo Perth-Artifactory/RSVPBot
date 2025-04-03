@@ -7,7 +7,7 @@ from pprint import pprint
 from slack_bolt import App
 from slack_sdk.errors import SlackApiError
 
-from slack import block_formatters
+from slack import block_formatters, misc
 from editable_resources import strings
 
 # Set up logging
@@ -172,29 +172,20 @@ for event in formatted_events:
                 == event["days_until"]
                 or manual
             ):
-                sending_event = template_event
-                sending_event["start"] = event["start"]
+                unconverted_event = template_event
+                unconverted_event["start"] = event["start"]
 
-                if not sending_event.get("title"):
-                    sending_event["title"] = event["title"]
-
-                if not sending_event.get("rsvp_deadline"):
-                    sending_event["rsvp_deadline"] = 0
-
-                if not sending_event.get("event_offset"):
-                    sending_event["event_offset"] = 0
-
-                blocks = block_formatters.format_event(sending_event)
-
-                channel = sending_event.get(
-                    "channel_override", config["slack"]["rsvp_channel"]
+                converted_event = misc.create_event_info(
+                    event=unconverted_event,
                 )
+
+                blocks = block_formatters.format_event(event=converted_event)
 
                 try:
                     response = app.client.chat_postMessage(
-                        channel=channel,
+                        channel=converted_event["channel"],
                         blocks=blocks,
-                        text=f"RSVP for {sending_event['title']}!",
+                        text=f"RSVP for {converted_event['title']}!",
                         username="Event RSVPs",
                         icon_emoji=":calendar:",
                     )
@@ -207,8 +198,10 @@ for event in formatted_events:
 
                 try:
                     r = app.client.chat_postMessage(
-                        channel=channel,
-                        blocks=block_formatters.format_admin_tools(event=sending_event),
+                        channel=converted_event["channel"],
+                        blocks=block_formatters.format_admin_tools(
+                            event=converted_event
+                        ),
                         text="Admin tools",
                         thread_ts=response["ts"],
                         username="Event RSVPs",
@@ -220,14 +213,15 @@ for event in formatted_events:
 
                 # Tag any event regulars in a reply to the event post
 
-                if sending_event.get("regulars", []):
-                    regulars = sending_event["regulars"]
-                    regulars_str = ", ".join([f"<@{r}>" for r in regulars])
+                if converted_event.get("regulars"):
+                    regulars_str = ", ".join(
+                        [f"<@{r}>" for r in converted_event["regulars"]]
+                    )
                     try:
                         r = app.client.chat_postMessage(
-                            channel=channel,
+                            channel=converted_event["channel"],
                             text=strings.regular_ping.format(
-                                title=sending_event["title"],
+                                title=converted_event["title"],
                                 regulars_str=regulars_str,
                             ),
                             thread_ts=response["ts"],

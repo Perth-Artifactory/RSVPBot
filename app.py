@@ -129,63 +129,42 @@ def rsvp(ack, body):
     if denied:
         return
 
-    original_message_blocks = body["message"]["blocks"]
-    new_message_blocks = []
+    rsvp_option = body["actions"][0]["value"]
+    user = body["user"]["id"]
 
-    # Get the RSVP block the button was attached to
-    rsvp_block_id = body["actions"][0]["block_id"]
+    if user in event["rsvp_options"][rsvp_option]:
+        # User is already attending, send them an ephemeral message instead
+        logging.info("User has already RSVP'd, sending ephemeral message options")
 
-    for block in original_message_blocks:
-        if block.get("block_id") == rsvp_block_id:
-            # Get the list of attendees
-            attendees = misc.parse_rsvps(line=block["text"]["text"])
+        eph_blocks = block_formatters.format_already_rsvp(
+            ts=body["message"]["ts"], attend_type=rsvp_option
+        )
 
-            # Get the user who clicked the button
-            user = body["user"]["id"]
-
-            # If the user is already attending, send an ephemeral message instead
-            if user in attendees:
-                logging.info(
-                    "User has already RSVP'd, sending ephemeral message options"
-                )
-
-                eph_blocks = block_formatters.format_already_rsvp(
-                    ts=body["message"]["ts"], attend_type=body["actions"][0]["value"]
-                )
-
-                # Send an ephemeral message to the user
-                try:
-                    app.client.chat_postEphemeral(
-                        channel=body["channel"]["id"],
-                        user=user,
-                        blocks=eph_blocks,
-                        text=strings.already_rsvpd,
-                        icon_emoji=":calendar:",
-                    )
-                except SlackApiError as e:
-                    logger.error(
-                        f"Error posting ephemeral message: {e.response['error']}"
-                    )
-                    pprint(eph_blocks)
-
-            # If the user is not in attending, add them to the list
-            else:
-                attendees[user] = 1
-
-            attend_type = body["actions"][0]["value"]
-            block["text"]["text"] = (
-                f"*{attend_type}* ({misc.count_rsvps(attendees=attendees)}): {misc.format_rsvps(attendees=attendees)}"
+        # Send an ephemeral message to the user
+        try:
+            app.client.chat_postEphemeral(
+                channel=body["channel"]["id"],
+                user=user,
+                blocks=eph_blocks,
+                text=strings.already_rsvpd,
+                icon_emoji=":calendar:",
             )
-            new_message_blocks.append(block)
-        else:
-            new_message_blocks.append(block)
+        except SlackApiError as e:
+            logger.error(f"Error posting ephemeral message: {e.response['error']}")
+            pprint(eph_blocks)
+
+    else:
+        event["rsvp_options"][rsvp_option][user] = 1
+
+    # Convert the event back into blocks
+    blocks = block_formatters.format_event(event=event)
 
     # Update the message
     try:
         app.client.chat_update(
             channel=body["channel"]["id"],
             ts=body["message"]["ts"],
-            blocks=new_message_blocks,
+            blocks=blocks,
             text=body["message"]["text"],
             icon_emoji=":calendar:",
         )
@@ -198,6 +177,7 @@ def remove_rsvp(ack, body, respond):
     ack()
     # Get the info from the button
     ts, attend_type = body["actions"][0]["value"].split("-")
+    user = body["user"]["id"]
 
     # Retrieve the actual message we care about
     result = app.client.conversations_history(
@@ -206,34 +186,22 @@ def remove_rsvp(ack, body, respond):
 
     message = result["messages"][0]
 
-    original_message_blocks = message["blocks"]
-    new_message_blocks = []
-    block_id = f"RSVP_{attend_type}"
+    # Convert the blocks into an event dictionary
+    event = misc.parse_event(message["blocks"])
 
-    for block in original_message_blocks:
-        if block.get("block_id") == block_id:
-            attendees = misc.parse_rsvps(line=block["text"]["text"])
+    # Remove the user from the event if they exist
+    if user in event["rsvp_options"][attend_type]:
+        del event["rsvp_options"][attend_type][user]
 
-            # Get the user who clicked the button
-            user = body["user"]["id"]
-
-            # If the user is already attending, remove them from the list
-            if user in attendees:
-                del attendees[user]
-
-            block["text"]["text"] = (
-                f"*{attend_type}* ({misc.count_rsvps(attendees=attendees)}): {misc.format_rsvps(attendees=attendees)}"
-            )
-            new_message_blocks.append(block)
-        else:
-            new_message_blocks.append(block)
+    # Convert the event back into blocks
+    blocks = block_formatters.format_event(event=event)
 
     # Update the message
     try:
         app.client.chat_update(
             channel=body["channel"]["id"],
             ts=ts,
-            blocks=new_message_blocks,
+            blocks=blocks,
             text=message["text"],
             icon_emoji=":calendar:",
         )
@@ -247,6 +215,7 @@ def remove_rsvp(ack, body, respond):
 def other_rsvp(ack, body, respond):
     ack()
     ts, attend_type = body["actions"][0]["value"].split("-")
+    user = body["user"]["id"]
 
     # Retrieve the actual message we care about
 
@@ -256,37 +225,24 @@ def other_rsvp(ack, body, respond):
 
     message = result["messages"][0]
 
-    original_message_blocks = message["blocks"]
-    new_message_blocks = []
+    # Convert the blocks into an event dictionary
+    event = misc.parse_event(message["blocks"])
 
-    block_id = f"RSVP_{attend_type}"
+    # Increase the count of the user or add them if they don't exist
+    if user in event["rsvp_options"][attend_type]:
+        event["rsvp_options"][attend_type][user] += 1
+    else:
+        event["rsvp_options"][attend_type][user] = 1
 
-    for block in original_message_blocks:
-        if block.get("block_id") == block_id:
-            attendees = misc.parse_rsvps(line=block["text"]["text"])
-
-            # Get the user who clicked the button
-            user = body["user"]["id"]
-
-            if user in attendees:
-                attendees[user] += 1
-            else:
-                attendees[user] = 1
-
-            block["text"]["text"] = (
-                f"*{attend_type}* ({misc.count_rsvps(attendees=attendees)}): {misc.format_rsvps(attendees=attendees)}"
-            )
-            new_message_blocks.append(block)
-        else:
-            new_message_blocks.append(block)
+    # Convert the event back into blocks
+    blocks = block_formatters.format_event(event=event)
 
     # Update the message
-
     try:
         app.client.chat_update(
             channel=body["channel"]["id"],
             ts=ts,
-            blocks=new_message_blocks,
+            blocks=blocks,
             text=message["text"],
             icon_emoji=":calendar:",
         )
@@ -333,6 +289,9 @@ def multi_rsvp_submit(ack, body, logger):
     # Parse the private metadata
     ts, attend_type, channel = body["view"]["private_metadata"].split("-")
     user = body["user"]["id"]
+    other_attendees = body["view"]["state"]["values"]["multi_rsvp"]["multi_rsvp"][
+        "selected_users"
+    ]
 
     # Retrieve the actual message we care about
     result = app.client.conversations_history(
@@ -341,38 +300,25 @@ def multi_rsvp_submit(ack, body, logger):
 
     message = result["messages"][0]
 
-    original_message_blocks = message["blocks"]
-    new_message_blocks = []
-    block_id = f"RSVP_{attend_type}"
+    # Convert the blocks into an event dictionary
+    event = misc.parse_event(message["blocks"])
 
-    other_attendees = body["view"]["state"]["values"]["multi_rsvp"]["multi_rsvp"][
-        "selected_users"
-    ]
-
+    # Add users to the event if they have not already RSVP'd, do nothing if they have
     added = []
+    for prospective_attendee in other_attendees:
+        if prospective_attendee not in event["rsvp_options"][attend_type]:
+            event["rsvp_options"][attend_type][prospective_attendee] = 1
+            added.append(prospective_attendee)
 
-    for block in original_message_blocks:
-        if block.get("block_id") == block_id:
-            attendees = misc.parse_rsvps(line=block["text"]["text"])
-
-            for new_attendee in other_attendees:
-                if new_attendee not in attendees:
-                    attendees[new_attendee] = 1
-                    added.append(new_attendee)
-
-            block["text"]["text"] = (
-                f"*{attend_type}* ({misc.count_rsvps(attendees=attendees)}): {misc.format_rsvps(attendees=attendees)}"
-            )
-            new_message_blocks.append(block)
-        else:
-            new_message_blocks.append(block)
+    # Convert the event back into blocks
+    blocks = block_formatters.format_event(event=event)
 
     # Update the message
     try:
         app.client.chat_update(
             channel=channel,
             ts=ts,
-            blocks=new_message_blocks,
+            blocks=blocks,
             text=message["text"],
             icon_emoji=":calendar:",
         )
@@ -408,7 +354,6 @@ def multi_rsvp_submit(ack, body, logger):
 @app.action("admin_event")
 def admin_event(ack, body):
     ack()
-    # Delete the original message via the response_url
 
     # Get the original message this message was replied to
     ts = body["container"]["thread_ts"]
@@ -419,8 +364,9 @@ def admin_event(ack, body):
     message = message["messages"][0]
 
     # Get event data
-    pprint(message["blocks"])
     event = misc.parse_event(message["blocks"])
+
+    # Spit the event data to the console as a test
     pprint(event)
 
 

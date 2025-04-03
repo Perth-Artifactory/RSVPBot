@@ -3,7 +3,7 @@ import logging
 from pprint import pprint
 import requests
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import jsonschema
 
@@ -288,3 +288,47 @@ def parse_event(blocks: dict) -> dict:
             )
 
     return event
+
+
+def create_event_info(event: dict) -> dict:
+    """Create a dictionary of event info from an event template seeded with Google Calendar data"""
+    event_info = {}
+
+    event_info["title"] = event.get("title", event["calendar_name"])
+    event_info["description"] = event.get("description", "Come on down!")
+    if event.get("image"):
+        event_info["image"] = event["image"]
+    if event.get("price"):
+        event_info["price"] = event["price"]
+    if event.get("hosts"):
+        event_info["hosts"] = event["hosts"]
+
+    event_info["rsvps"] = OrderedDict()
+
+    for rsvp_type in event.get("rsvp_options", ["Attending"]):
+        event_info["rsvps"][rsvp_type] = {}
+
+    if event.get("auto_rsvp"):
+        event_info["rsvps"][0] = {user: 1 for user in event["auto_rsvp"]}
+
+    event_info["start"] = event["start"] + timedelta(hours=event.get("event_offset", 0))
+
+    if event.get("rsvp_deadline"):
+        event_info["rsvp_deadline"] = event_info["start"] - timedelta(
+            hours=event.get("rsvp_deadline", 0)
+        )
+    else:
+        event_info["rsvp_deadline"] = event_info["start"]
+
+    event_info["channel"] = event.get(
+        "channel_override", config["slack"]["rsvp_channel"]
+    )
+
+    if event.get("regulars"):
+        event_info["regulars"] = event["regulars"]
+
+    return event_info
+
+
+with open("config.json") as f:
+    config: dict = json.load(f)

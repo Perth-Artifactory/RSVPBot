@@ -4,7 +4,7 @@ from datetime import timedelta
 from pprint import pprint
 
 from editable_resources import strings
-from slack import blocks
+from slack import blocks, misc
 
 # Set up logging
 logger = logging.getLogger("slack.block_formatters")
@@ -19,9 +19,7 @@ def format_event(event: dict) -> list[dict]:
     block_list = inject_text(block_list=block_list, text=f"{event['title']} RSVP")
     block_list[-1]["block_id"] = "title"
     block_list = add_block(block_list=block_list, block=blocks.text)
-    block_list = inject_text(
-        block_list=block_list, text=event.get("description", "Come on down!")
-    )
+    block_list = inject_text(block_list=block_list, text=event["description"])
     block_list[-1]["block_id"] = "description"
 
     # Construct info fields
@@ -33,19 +31,16 @@ def format_event(event: dict) -> list[dict]:
 
     info_fields.append(copy(blocks.field))
     # Calculate the start time of the event based on the datetime modified by the event offset
-    start_time = event["start"] + timedelta(hours=event["event_offset"])
 
     info_fields[-1]["text"] = (
-        f"*When*: <!date^{int(start_time.timestamp())}^{{time}} {{date_long_pretty}}|{start_time.strftime('%A, %B %d, %Y %I:%M %p')}>"
+        f"*When*: <!date^{int(event['start'].timestamp())}^{{time}} {{date_long_pretty}}|{event['start'].strftime('%A, %B %d, %Y %I:%M %p')}>"
     )
 
-    if event.get("rsvp_deadline"):
+    if event["rsvp_deadline"] != event["start"]:
         info_fields.append(copy(blocks.field))
-        # Calculate the RSVP time
-        rsvp_time = start_time - timedelta(hours=event["rsvp_deadline"])
 
         info_fields[-1]["text"] = (
-            f"*RSVP by*: <!date^{int(rsvp_time.timestamp())}^{{time}} {{date_long_pretty}}|{rsvp_time.strftime('%A, %B %d, %Y %I:%M %p')}>"
+            f"*RSVP by*: <!date^{int(event['rsvp_deadline'].timestamp())}^{{time}} {{date_long_pretty}}|{event['rsvp_deadline'].strftime('%A, %B %d, %Y %I:%M %p')}>"
         )
 
     if event.get("hosts", []) != []:
@@ -70,20 +65,21 @@ def format_event(event: dict) -> list[dict]:
 
     # Construct RSVPs
     rsvp_sections = []
-    for option in event.get("rsvp_options", ["Attending"]):
+    for option in event["rsvp_options"]:
         rsvp_sections = add_block(block_list=rsvp_sections, block=blocks.text)
-        rsvp_sections[-1]["text"]["text"] = f"*{option}*: "
         rsvp_sections[-1]["block_id"] = f"RSVP_{option}"
         rsvp_sections[-1]["accessory"] = copy(blocks.button)
         rsvp_sections[-1]["accessory"]["text"]["text"] = f"RSVP: {option}"
         rsvp_sections[-1]["accessory"]["value"] = option
         rsvp_sections[-1]["accessory"]["action_id"] = f"rsvp_{option}"
 
-        # Tack on auto RSVP'd users to the first attending option
-        if len(rsvp_sections) == 1 and event.get("auto_rsvp", []) != []:
-            rsvp_sections[-1]["accessory"]["text"]["text"] += ", ".join(
-                [f"<@{user_id}>" for user_id in event["auto_rsvp"]]
+        if event["rsvp_options"][option]:
+            attendees = event["rsvp_options"][option]
+            rsvp_sections[-1]["text"]["text"] = (
+                f"*{option}* ({misc.count_rsvps(attendees=attendees)}): {misc.format_rsvps(attendees=attendees)}"
             )
+        else:
+            rsvp_sections[-1]["text"]["text"] = f"*{option}* (0): "
 
     # Add RSVPs to block list
     block_list += rsvp_sections
