@@ -29,7 +29,7 @@ Manage RSVPs for events from Slack
 ## Running
 
 * Run `app.py` however you want
-* Run `cron.py` on a daily schedule to post new events, `--debug` to enable debug logging 
+* Run `cron.py` on a daily schedule to post new events, `--debug` to enable debug logging
 
 ### Manual event creation
 
