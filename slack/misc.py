@@ -303,10 +303,10 @@ def create_event_info(event: dict) -> dict:
     if event.get("hosts"):
         event_info["hosts"] = event["hosts"]
 
-    event_info["rsvps"] = OrderedDict()
+    event_info["rsvp_options"] = OrderedDict()
 
     for rsvp_type in event.get("rsvp_options", ["Attending"]):
-        event_info["rsvps"][rsvp_type] = {}
+        event_info["rsvp_options"][rsvp_type] = {}
 
     if event.get("auto_rsvp"):
         event_info["rsvps"][0] = {user: 1 for user in event["auto_rsvp"]}
