@@ -554,7 +554,11 @@ def write_edit_event(ack, body):
         elif data["type"] == "multi_users_select":
             event[key] = data["selected_users"]
         elif data["type"] == "datetimepicker":
-            event[key] = datetime.fromtimestamp(data["selected_date_time"])
+            try:
+                event[key] = datetime.fromtimestamp(data["selected_date_time"])
+            except TypeError:
+                # Remove the key if the user didn't select a date
+                del event[key]
 
     # Convert the event back into blocks
     blocks = block_formatters.format_event(event=event)

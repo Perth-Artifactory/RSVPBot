@@ -36,6 +36,10 @@ def format_event(event: dict) -> list[dict]:
         f"*When*: <!date^{int(event['start'].timestamp())}^{{time}} {{date_long_pretty}}|{event['start'].strftime('%A, %B %d, %Y %I:%M %p')}>"
     )
 
+    # Some event edits remove the RSVP deadline as a method of setting it to the event start time
+    if "rsvp_deadline" not in event:
+        event["rsvp_deadline"] = event["start"]
+
     if event["rsvp_deadline"] != event["start"]:
         info_fields.append(copy(blocks.field))
 
