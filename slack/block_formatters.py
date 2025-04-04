@@ -189,6 +189,12 @@ def format_edit_event(event: dict, ts: str, channel: str) -> list[dict]:
     block_list[-1]["elements"][-1]["action_id"] = "edit_rsvp_modal"
     block_list[-1]["elements"][-1]["value"] = f"{ts}-{channel}"
 
+    # Edit RSVP options button
+    block_list[-1]["elements"].append(copy(blocks.button))
+    block_list[-1]["elements"][-1]["text"]["text"] = "Edit RSVP Options"
+    block_list[-1]["elements"][-1]["action_id"] = "edit_rsvp_options_modal"
+    block_list[-1]["elements"][-1]["value"] = f"{ts}-{channel}"
+
     # Event title
     block_list = add_block(block_list=block_list, block=blocks.text_question)
     block_list[-1]["element"].pop("placeholder")
@@ -303,6 +309,45 @@ def format_edit_rsvps(event: dict, ts: str, channel: str) -> list[dict]:
             block_list[-1]["accessory"]["style"] = "danger"
             block_list[-1]["accessory"]["action_id"] = "remove_rsvp_modal"
             block_list[-1]["accessory"]["value"] = f"{ts}-{channel}-{attendee}-{option}"
+        block_list = add_block(block_list=block_list, block=blocks.divider)
+
+    # Trim the last divider
+    if block_list[-1]["type"] == "divider":
+        block_list.pop()
+
+    return block_list
+
+
+def format_edit_rsvp_options(event: dict, ts: str, channel: str) -> list[dict]:
+    block_list = []
+
+    block_list = add_block(block_list=block_list, block=blocks.text)
+    block_list = inject_text(
+        block_list=block_list,
+        text=strings.edit_rsvp_options,
+    )
+    block_list[-1]["accessory"] = copy(blocks.button)
+    block_list[-1]["accessory"]["text"]["text"] = "Add option"
+    block_list[-1]["accessory"]["style"] = "primary"
+    block_list[-1]["accessory"]["action_id"] = "add_rsvp_option"
+    block_list[-1]["accessory"]["value"] = f"{ts}-{channel}"
+
+    for option in event["rsvp_options"]:
+        block_list = add_block(block_list=block_list, block=blocks.text_question)
+        block_list[-1]["element"].pop("placeholder")
+        block_list[-1]["element"]["initial_value"] = option
+        block_list[-1]["element"]["action_id"] = "rsvp_option"
+        block_list[-1]["label"]["text"] = option
+        block_list[-1]["block_id"] = f"rsvp_option_{option}"
+
+        block_list = add_block(block_list=block_list, block=blocks.actions)
+        block_list[-1]["block_id"] = f"{option}_delete"
+        block_list[-1]["elements"].append(copy(blocks.button))
+        block_list[-1]["elements"][-1]["text"]["text"] = "Delete option"
+        block_list[-1]["elements"][-1]["action_id"] = "delete_rsvp_option"
+        block_list[-1]["elements"][-1]["style"] = "danger"
+        block_list[-1]["elements"][-1]["value"] = f"{ts}-{option}-{channel}"
+
         block_list = add_block(block_list=block_list, block=blocks.divider)
 
     # Trim the last divider
