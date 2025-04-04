@@ -17,3 +17,4 @@ rsvp_slack_added = (
 )
 rsvp_slack_not_added = "The following {user_plural} already attending:\n{user_list}"
 not_host = "You are not listed as a host for this event. Please contact the event host if you need to make changes."
+host_can_edit = "Hosts you add here will be able to edit the event (including removing you as a host)"

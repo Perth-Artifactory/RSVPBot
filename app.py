@@ -3,9 +3,8 @@ import logging
 import re
 import sys
 from pprint import pprint
-from datetime import datetime, timedelta
+from datetime import datetime
 
-import requests
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk.errors import SlackApiError
@@ -57,6 +56,7 @@ app = App(token=config["slack"]["bot_token"], logger=slack_logger)
 
 @app.action(re.compile(r"^rsvp_.*"))
 def rsvp(ack, body):
+    """Respond to specific RSVP button actions"""
     ack()
 
     # Parse event data from the post back into a dictionary
@@ -162,6 +162,7 @@ def rsvp(ack, body):
 
 @app.action("remove_rsvp")
 def remove_rsvp(ack, body):
+    """Remove the RSVP (if present) for the triggering user"""
     ack()
     # Get the info from the button
     ts, attend_type, channel = body["actions"][0]["value"].split("-")
@@ -408,18 +409,20 @@ def admin_event(ack, body):
 
     # Check if the user is an event host
     if user in event.get("hosts", []):
+        blocks = block_formatters.format_edit_event(event=event)
         # User is an event host, send them a modal with the event data
         try:
             app.client.views_open(
                 trigger_id=body["trigger_id"],
                 view={
                     "type": "modal",
-                    "callback_id": "admin_event",
-                    "title": {"type": "plain_text", "text": "Event Details"},
-                    "blocks": block_formatters.simple_modal_blocks(
-                        text="yay you could do things if there were things to be done"
-                    ),
+                    "callback_id": "write_edit_event",
+                    "title": {"type": "plain_text", "text": "Edit event"},
+                    "blocks": blocks,
                     "close": {"type": "plain_text", "text": "Cancel"},
+                    "submit": {"type": "plain_text", "text": "Save"},
+                    "private_metadata": f"{ts}-{body['channel']['id']}",
+                    "clear_on_close": True,
                 },
             )
         except SlackApiError as e:
@@ -444,6 +447,49 @@ def admin_event(ack, body):
         except SlackApiError as e:
             logger.error(f"Error opening modal: {e.response['error']}")
             logger.error(e.response)
+
+
+@app.view("write_edit_event")
+def write_edit_event(ack, body):
+    """Handle the event edit modal submission"""
+    ack()
+
+    ts, channel = body["view"]["private_metadata"].split("-")
+    user = body["user"]["id"]
+
+    # Get a fresh copy of the event message
+    message = app.client.conversations_history(
+        channel=channel, inclusive=True, oldest=ts, limit=1
+    )
+    message = message["messages"][0]
+
+    # Parse the event data from the message
+    event = misc.parse_event(message["blocks"])
+
+    # Get the new event data from the modal
+    for key in body["view"]["state"]["values"]:
+        data = body["view"]["state"]["values"][key][key]
+        if data["type"] == "plain_text_input":
+            event[key] = data["value"]
+        elif data["type"] == "multi_users_select":
+            event[key] = data["selected_users"]
+        elif data["type"] == "datetimepicker":
+            event[key] = datetime.fromtimestamp(data["selected_date_time"])
+
+    # Convert the event back into blocks
+    blocks = block_formatters.format_event(event=event)
+
+    # Update the message
+    try:
+        app.client.chat_update(
+            channel=channel,
+            ts=ts,
+            blocks=blocks,
+            text=message["text"],
+        )
+    except SlackApiError as e:
+        logger.error(f"Error updating message: {e.response['error']}")
+        logger.error(e.response)
 
 
 # Start the app

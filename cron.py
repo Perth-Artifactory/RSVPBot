@@ -198,7 +198,7 @@ for event in formatted_events:
                 try:
                     r = app.client.chat_postMessage(
                         channel=converted_event["channel"],
-                        blocks=block_formatters.format_admin_tools(
+                        blocks=block_formatters.format_admin_prompt(
                             event=converted_event
                         ),
                         text="Admin tools",

@@ -109,6 +109,20 @@ date_select = {
     "label": {"type": "plain_text", "text": "", "emoji": True},
 }
 
+datetime_select = {
+    "type": "input",
+    "element": {
+        "type": "datetimepicker",
+        "placeholder": {
+            "type": "plain_text",
+            "text": "",
+            "emoji": True,
+        },
+        "action_id": "",
+    },
+    "label": {"type": "plain_text", "text": "", "emoji": True},
+}
+
 cal_select = {
     "type": "datepicker",
     "placeholder": {"type": "plain_text", "text": ""},
