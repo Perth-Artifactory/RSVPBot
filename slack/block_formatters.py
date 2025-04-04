@@ -112,7 +112,7 @@ def modal_rsvp_options(ts, attend_type, channel):
     block_list[-1]["elements"].append(copy(blocks.button))
     block_list[-1]["elements"][-1]["text"]["text"] = strings.slack_rsvp
     block_list[-1]["elements"][-1]["action_id"] = "other_slack_rsvp"
-    block_list[-1]["elements"][-1]["value"] = f"{ts}-{attend_type}-{channel}"
+    block_list[-1]["elements"][-1]["value"] = f"{ts}-{attend_type}-{channel}-user"
 
     block_list[-1]["elements"].append(copy(blocks.button))
     block_list[-1]["elements"][-1]["text"]["text"] = strings.remove_rsvp
@@ -172,10 +172,18 @@ def format_admin_prompt(event) -> list[dict]:
     return block_list
 
 
-def format_edit_event(event: dict) -> list[dict]:
+def format_edit_event(event: dict, ts: str, channel: str) -> list[dict]:
     """Format the blocks for an event edit modal and pre-populate with provided event data."""
 
     block_list = []
+
+    # Edit RSVP button
+    block_list = add_block(block_list=block_list, block=blocks.actions)
+    block_list[-1]["block_id"] = "edit_rsvp"
+    block_list[-1]["elements"].append(copy(blocks.button))
+    block_list[-1]["elements"][-1]["text"]["text"] = "Edit RSVPs"
+    block_list[-1]["elements"][-1]["action_id"] = "edit_rsvp_modal"
+    block_list[-1]["elements"][-1]["value"] = f"{ts}-{channel}"
 
     # Event title
     block_list = add_block(block_list=block_list, block=blocks.text_question)
@@ -196,6 +204,7 @@ def format_edit_event(event: dict) -> list[dict]:
 
     # Event image
     block_list = add_block(block_list=block_list, block=blocks.text_question)
+    block_list[-1]["optional"] = True
     block_list[-1]["label"]["text"] = "Event Image URL"
     block_list[-1]["block_id"] = "image"
     block_list[-1]["element"]["action_id"] = "image"
@@ -209,6 +218,7 @@ def format_edit_event(event: dict) -> list[dict]:
 
     # Price
     block_list = add_block(block_list=block_list, block=blocks.text_question)
+    block_list[-1]["optional"] = True
     block_list[-1]["label"]["text"] = "Event Price"
     block_list[-1]["block_id"] = "price"
     block_list[-1]["element"]["action_id"] = "price"
@@ -242,6 +252,7 @@ def format_edit_event(event: dict) -> list[dict]:
 
     # Event RSVP deadline
     block_list = add_block(block_list=block_list, block=blocks.datetime_select)
+    block_list[-1]["optional"] = True
     block_list[-1]["element"]["action_id"] = "rsvp_deadline"
     block_list[-1]["block_id"] = "rsvp_deadline"
     block_list[-1]["label"]["text"] = "RSVP Deadline"
@@ -250,7 +261,49 @@ def format_edit_event(event: dict) -> list[dict]:
             "rsvp_deadline"
         ].timestamp()
     block_list[-1]["element"].pop("placeholder")
-    # block_list[-1]["hint"] = (        {            "type": "plain_text",            "text": "Leave blank to use the event time as the RSVP deadline",       },)
+    block_list = add_block(block_list=block_list, block=blocks.context)
+    block_list[-1]["elements"][0]["text"] = "Leave blank to use the event start time"
+
+    return block_list
+
+
+def format_edit_rsvps(event: dict, ts: str, channel: str) -> list[dict]:
+    """Format the blocks for an RSVP edit modal and pre-populate with provided event data."""
+
+    block_list = []
+
+    for option in event["rsvp_options"]:
+        block_list = add_block(block_list=block_list, block=blocks.text)
+        block_list = inject_text(
+            block_list=block_list,
+            text=f"{option} ({misc.count_rsvps(attendees=event['rsvp_options'][option])})",
+        )
+        block_list[-1]["accessory"] = copy(blocks.button)
+        block_list[-1]["accessory"]["text"]["text"] = "Add"
+        block_list[-1]["accessory"]["style"] = "primary"
+        block_list[-1]["accessory"]["action_id"] = "other_slack_rsvp"
+        block_list[-1]["accessory"]["value"] = f"{ts}-{option}-{channel}-host"
+
+        for attendee in event["rsvp_options"][option]:
+            block_list = add_block(block_list=block_list, block=blocks.text)
+            block_list = inject_text(
+                block_list=block_list,
+                text=f"<@{attendee}>",
+            )
+            if event["rsvp_options"][option][attendee] > 1:
+                block_list[-1]["text"]["text"] += (
+                    f"+{event['rsvp_options'][option][attendee] - 1}"
+                )
+            block_list[-1]["accessory"] = copy(blocks.button)
+            block_list[-1]["accessory"]["text"]["text"] = "Remove"
+            block_list[-1]["accessory"]["style"] = "danger"
+            block_list[-1]["accessory"]["action_id"] = "remove_rsvp_modal"
+            block_list[-1]["accessory"]["value"] = f"{ts}-{channel}-{attendee}-{option}"
+        block_list = add_block(block_list=block_list, block=blocks.divider)
+
+    # Trim the last divider
+    if block_list[-1]["type"] == "divider":
+        block_list.pop()
 
     return block_list
 

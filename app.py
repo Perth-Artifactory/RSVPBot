@@ -221,6 +221,61 @@ def remove_rsvp(ack, body):
         logger.error(e.response)
 
 
+@app.action("remove_rsvp_modal")
+def remove_rsvp_modal(ack, body):
+    """Remove the RSVP (if present) for the specified user"""
+    ack()
+    # Get the info from the button
+    ts, channel, user, attend_type = body["actions"][0]["value"].split("-")
+
+    # Retrieve the actual message we care about
+    result = app.client.conversations_history(
+        channel=channel, inclusive=True, oldest=ts, limit=1
+    )
+
+    message = result["messages"][0]
+
+    # Convert the blocks into an event dictionary
+    event = misc.parse_event(message["blocks"])
+
+    # Remove the user from the event if they exist
+    if user in event["rsvp_options"][attend_type]:
+        del event["rsvp_options"][attend_type][user]
+
+    # Convert the event back into blocks
+    blocks = block_formatters.format_event(event=event)
+
+    # Update the message
+    try:
+        app.client.chat_update(
+            channel=channel,
+            ts=ts,
+            blocks=blocks,
+            text=message["text"],
+        )
+    except SlackApiError as e:
+        logger.error(f"Error updating message: {e.response['error']}")
+
+    # Update the current modal to show the RSVP was removed
+    blocks = block_formatters.format_edit_rsvps(event=event, ts=ts, channel=channel)
+
+    try:
+        app.client.views_update(
+            view_id=body["view"]["id"],
+            view={
+                "type": "modal",
+                "callback_id": "edit_rsvp_modal",
+                "title": {"type": "plain_text", "text": "Edit RSVPs"},
+                "blocks": blocks,
+                "close": {"type": "plain_text", "text": "Cancel"},
+                "private_metadata": f"{ts}-{channel}",
+            },
+        )
+    except SlackApiError as e:
+        logger.error(f"Error opening modal: {e.response['error']}")
+        logger.error(e.response)
+
+
 @app.action("other_rsvp")
 def other_rsvp(ack, body):
     ack()
@@ -309,8 +364,12 @@ def modal_other_slack_rsvp(ack, body):
 def multi_rsvp_submit(ack, body, logger):
     ack()
 
+    pprint(body)
+
     # Parse the private metadata
-    ts, attend_type, channel = body["view"]["private_metadata"].split("-")
+    print(body["view"]["private_metadata"])
+    ts, attend_type, channel, usertype = body["view"]["private_metadata"].split("-")
+
     user = body["user"]["id"]
     other_attendees = body["view"]["state"]["values"]["multi_rsvp"]["multi_rsvp"][
         "selected_users"
@@ -350,45 +409,65 @@ def multi_rsvp_submit(ack, body, logger):
     except SlackApiError as e:
         logger.error(f"Error updating message: {e.response['error']}")
 
-    # Push a new modal to the user letting them know their RSVP was removed
-    modal_text = ""
-    if added:
-        modal_text = strings.rsvp_slack_added.format(
-            user_plural="users have" if len(added) > 1 else "user has",
-            user_list=", ".join([f"<@{user_id}>" for user_id in added]),
-        )
+    # Users get a new modal, hosts just get their existing modal updated
+    if usertype == "user":
+        # Push a new modal to the user letting them know their RSVP was removed
+        modal_text = ""
+        if added:
+            modal_text = strings.rsvp_slack_added.format(
+                user_plural="users have" if len(added) > 1 else "user has",
+                user_list=", ".join([f"<@{user_id}>" for user_id in added]),
+            )
 
-    if not_added:
-        modal_text += "\n" + strings.rsvp_slack_not_added.format(
-            user_plural="users were" if len(not_added) > 1 else "user was",
-            user_list=", ".join([f"<@{user_id}>" for user_id in not_added]),
-        )
+        if not_added:
+            modal_text += "\n" + strings.rsvp_slack_not_added.format(
+                user_plural="users were" if len(not_added) > 1 else "user was",
+                user_list=", ".join([f"<@{user_id}>" for user_id in not_added]),
+            )
 
-    try:
-        app.client.views_update(
-            view_id=body["view"]["previous_view_id"],
-            view={
-                "type": "modal",
-                "callback_id": "rsvp_added",
-                "title": {"type": "plain_text", "text": "RSVP Added"},
-                "blocks": block_formatters.simple_modal_blocks(text=modal_text),
-                "close": {"type": "plain_text", "text": "Close"},
-                "clear_on_close": True,
-            },
-        )
-    except SlackApiError as e:
-        logger.error(f"Error opening modal: {e.response['error']}")
-        logger.error(e.response)
+        try:
+            app.client.views_update(
+                view_id=body["view"]["previous_view_id"],
+                view={
+                    "type": "modal",
+                    "callback_id": "rsvp_added",
+                    "title": {"type": "plain_text", "text": "RSVP Added"},
+                    "blocks": block_formatters.simple_modal_blocks(text=modal_text),
+                    "close": {"type": "plain_text", "text": "Close"},
+                    "clear_on_close": True,
+                },
+            )
+        except SlackApiError as e:
+            logger.error(f"Error opening modal: {e.response['error']}")
+            logger.error(e.response)
 
-    # Attach an audit message to the original message
-    try:
-        app.client.chat_postMessage(
-            channel=channel,
-            thread_ts=ts,
-            text=f"{', '.join([f'<@{user_id}>' for user_id in added])} RSVP'd as {attend_type} by <@{user}>",
-        )
-    except SlackApiError as e:
-        logger.error(f"Error posting message: {e.response['error']}")
+        # Attach an audit message to the original message
+        try:
+            app.client.chat_postMessage(
+                channel=channel,
+                thread_ts=ts,
+                text=f"{', '.join([f'<@{user_id}>' for user_id in added])} RSVP'd as {attend_type} by <@{user}>",
+            )
+        except SlackApiError as e:
+            logger.error(f"Error posting message: {e.response['error']}")
+    elif usertype == "host":
+        # Update the current modal to show the RSVP was removed
+        blocks = block_formatters.format_edit_rsvps(event=event, ts=ts, channel=channel)
+
+        try:
+            app.client.views_update(
+                view_id=body["view"]["previous_view_id"],
+                view={
+                    "type": "modal",
+                    "callback_id": "edit_rsvp_modal",
+                    "title": {"type": "plain_text", "text": "Edit RSVPs"},
+                    "blocks": blocks,
+                    "private_metadata": f"{ts}-{channel}",
+                },
+            )
+        except SlackApiError as e:
+            logger.error(f"Error opening modal: {e.response['error']}")
+            logger.error(e.response)
 
 
 @app.action("admin_event")
@@ -397,10 +476,11 @@ def admin_event(ack, body):
 
     # Get the original message this message was replied to
     ts = body["container"]["thread_ts"]
+    channel = body["channel"]["id"]
     user = body["user"]["id"]
 
     message = app.client.conversations_history(
-        channel=body["channel"]["id"], inclusive=True, oldest=ts, limit=1
+        channel=channel, inclusive=True, oldest=ts, limit=1
     )
     message = message["messages"][0]
 
@@ -409,7 +489,7 @@ def admin_event(ack, body):
 
     # Check if the user is an event host
     if user in event.get("hosts", []):
-        blocks = block_formatters.format_edit_event(event=event)
+        blocks = block_formatters.format_edit_event(event=event, ts=ts, channel=channel)
         # User is an event host, send them a modal with the event data
         try:
             app.client.views_open(
@@ -429,7 +509,7 @@ def admin_event(ack, body):
             logger.error(f"Error opening modal: {e.response['error']}")
             logger.error(e.response)
     else:
-        # User is not an event host, send them a modal with the event data
+        # User is not an event host, send them a modal letting them know
         try:
             app.client.views_open(
                 trigger_id=body["trigger_id"],
@@ -489,6 +569,42 @@ def write_edit_event(ack, body):
         )
     except SlackApiError as e:
         logger.error(f"Error updating message: {e.response['error']}")
+        logger.error(e.response)
+
+
+@app.action("edit_rsvp_modal")
+def modal_edit_rsvp(ack, body):
+    """Push a view to edit the RSVPs for an event"""
+    ack()
+
+    # Get the original message this message was replied to
+    ts, channel = body["view"]["private_metadata"].split("-")
+    user = body["user"]["id"]
+
+    # Get event data
+    message = app.client.conversations_history(
+        channel=channel, inclusive=True, oldest=ts, limit=1
+    )
+    message = message["messages"][0]
+
+    event = misc.parse_event(message["blocks"])
+
+    blocks = block_formatters.format_edit_rsvps(event=event, ts=ts, channel=channel)
+
+    try:
+        app.client.views_push(
+            trigger_id=body["trigger_id"],
+            view={
+                "type": "modal",
+                "callback_id": "edit_rsvp_modal",
+                "title": {"type": "plain_text", "text": "Edit RSVPs"},
+                "blocks": blocks,
+                "close": {"type": "plain_text", "text": "Cancel"},
+                "private_metadata": f"{ts}-{channel}",
+            },
+        )
+    except SlackApiError as e:
+        logger.error(f"Error opening modal: {e.response['error']}")
         logger.error(e.response)
 
 
