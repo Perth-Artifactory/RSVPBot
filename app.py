@@ -488,7 +488,7 @@ def admin_event(ack, body):
     event = misc.parse_event(message["blocks"])
 
     # Check if the user is an event host
-    if user in event.get("hosts", []):
+    if user in event.get("hosts", []) or user in admins:
         blocks = block_formatters.format_edit_event(event=event, ts=ts, channel=channel)
         # User is an event host, send them a modal with the event data
         try:
@@ -610,6 +610,26 @@ def modal_edit_rsvp(ack, body):
     except SlackApiError as e:
         logger.error(f"Error opening modal: {e.response['error']}")
         logger.error(e.response)
+
+
+# Retrieve all users in the admin group at runtime
+admins = []
+if config["slack"].get("admin_group"):
+    try:
+        admin_group = app.client.usergroups_users_list(
+            usergroup=config["slack"]["admin_group"]
+        )
+        admins = admin_group["users"]
+    except SlackApiError as e:
+        logger.error(f"Error retrieving admin group: {e.response['error']}")
+        logger.error(e.response)
+
+if admins:
+    logger.info(f"{len(admins)} admins set")
+else:
+    logger.warning(
+        "Something went wrong with the admin group (or it wasn't specified). Only event hosts will be able to edit events"
+    )
 
 
 # Start the app

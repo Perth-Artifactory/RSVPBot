@@ -8,6 +8,8 @@
         "rsvps",
         "schemalogger",
         "spinthinking",
+        "usergroup",
+        "usergroups",
         "usertype"
     ]
 }

@@ -3,9 +3,11 @@
         "bot_token": "xoxb-",
         "user_token": "xoxp-",
         "app_token": "xapp-",
-        "rsvp_channel": "CXXXXXXX"
+        "rsvp_channel": "CXXXXXXX",
+        "admin_group": "SXXXXXX",
     },
     "google": {
         "calendar_id": "XXXX@group.calendar.google.com"
-    }
+    },
+    "days_before": 4
 }
