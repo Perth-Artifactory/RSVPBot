@@ -891,6 +891,58 @@ def edit_rsvp_options(ack, body, logger):
             event["rsvp_options"][new_name] = event["rsvp_options"][old_name]
             del event["rsvp_options"][old_name]
 
+            # Post an audit message to the original message
+            if old_name != "New Option":
+                text = f"<@{user}> renamed the RSVP option `{old_name}` to `{new_name}`"
+            else:
+                text = f"<@{user}> added `{new_name}` as a new RSVP option"
+
+            try:
+                app.client.chat_postMessage(
+                    channel=channel,
+                    thread_ts=ts,
+                    text=text,
+                )
+            except SlackApiError as e:
+                logger.error(f"Error posting message: {e.response['error']}")
+                logger.error(e.response)
+
+            # Send DM to users as a record of the RSVP option change
+            if old_name != "New Option":
+                permalink = app.client.chat_getPermalink(
+                    channel=channel, message_ts=ts
+                )["permalink"]
+
+                dm_message = f"The RSVP option `{old_name}` has been renamed to `{new_name}` for an event you are attending"
+
+                dm_blocks = block_formatters.format_event_dm(
+                    event=event,
+                    message=dm_message,
+                    event_link=permalink,
+                    rsvp_option=new_name,
+                )
+
+                for affected_user in event["rsvp_options"][new_name]:
+                    try:
+                        misc.send_dm(
+                            slack_id=affected_user,
+                            message=dm_message,
+                            slack_app=app,
+                            blocks=dm_blocks,
+                            metadata={
+                                "event_type": "rsvp_option_renamed",
+                                "event_payload": {
+                                    "ts": ts,
+                                    "channel": channel,
+                                    "rsvp_option": new_name,
+                                    "event_time": int(event["start"].timestamp()),
+                                },
+                            },
+                        )
+                    except SlackApiError as e:
+                        logger.error(f"Error sending DM: {e.response['error']}")
+                        logger.error(e.response)
+
     # Convert the event back into blocks
     blocks = block_formatters.format_event(event=event)
 
@@ -907,25 +959,8 @@ def edit_rsvp_options(ack, body, logger):
         logger.error(e.response)
 
     # Since this is a view submission the modal has been closed
-
     # The previous modal in the stack doesn't include information
     # that has been edited here so it doesn't need updating
-
-    # Post an audit message to the original message
-    if old_name != "New Option":
-        text = f"<@{user}> renamed the RSVP option `{old_name}` to `{new_name}`"
-    else:
-        text = f"<@{user}> added `{new_name}` as a new RSVP option"
-
-    try:
-        app.client.chat_postMessage(
-            channel=channel,
-            thread_ts=ts,
-            text=text,
-        )
-    except SlackApiError as e:
-        logger.error(f"Error posting message: {e.response['error']}")
-        logger.error(e.response)
 
 
 @app.action("delete_rsvp_option")
@@ -996,6 +1031,38 @@ def delete_rsvp_option(ack, body, logger):
     except SlackApiError as e:
         logger.error(f"Error posting message: {e.response['error']}")
         logger.error(e.response)
+
+    # Send DM to users as a record of the RSVP option change
+    permalink = app.client.chat_getPermalink(channel=channel, message_ts=ts)[
+        "permalink"
+    ]
+    dm_message = f"`{option}` has been deleted as an RSVP option for an event you were attending and has subsequently removed your RSVP"
+    dm_blocks = block_formatters.format_event_dm(
+        event=event,
+        message=dm_message,
+        event_link=permalink,
+        rsvp_option=option,
+    )
+    for affected_user in notify_users:
+        try:
+            misc.send_dm(
+                slack_id=affected_user,
+                message=dm_message,
+                slack_app=app,
+                blocks=dm_blocks,
+                metadata={
+                    "event_type": "rsvp_option_deleted",
+                    "event_payload": {
+                        "ts": ts,
+                        "channel": channel,
+                        "rsvp_option": option,
+                        "event_time": int(event["start"].timestamp()),
+                    },
+                },
+            )
+        except SlackApiError as e:
+            logger.error(f"Error sending DM: {e.response['error']}")
+            logger.error(e.response)
 
 
 @app.action("add_rsvp_option")
