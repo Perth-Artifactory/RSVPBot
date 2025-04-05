@@ -181,19 +181,27 @@ def format_edit_event(event: dict, ts: str, channel: str) -> list[dict]:
 
     block_list = []
 
-    # Edit RSVP button
-    block_list = add_block(block_list=block_list, block=blocks.actions)
-    block_list[-1]["block_id"] = "edit_rsvp"
-    block_list[-1]["elements"].append(copy(blocks.button))
-    block_list[-1]["elements"][-1]["text"]["text"] = "Edit RSVPs"
-    block_list[-1]["elements"][-1]["action_id"] = "edit_rsvp_modal"
-    block_list[-1]["elements"][-1]["value"] = f"{ts}-{channel}"
+    # Don't add the top buttons if the event is being created
+    if ts == "NEW":
+        block_list = add_block(block_list=block_list, block=blocks.text)
+        block_list = inject_text(
+            block_list=block_list,
+            text=strings.create_event,
+        )
+    else:
+        # Edit RSVP button
+        block_list = add_block(block_list=block_list, block=blocks.actions)
+        block_list[-1]["block_id"] = "edit_rsvp"
+        block_list[-1]["elements"].append(copy(blocks.button))
+        block_list[-1]["elements"][-1]["text"]["text"] = "Edit RSVPs"
+        block_list[-1]["elements"][-1]["action_id"] = "edit_rsvp_modal"
+        block_list[-1]["elements"][-1]["value"] = f"{ts}-{channel}"
 
-    # Edit RSVP options button
-    block_list[-1]["elements"].append(copy(blocks.button))
-    block_list[-1]["elements"][-1]["text"]["text"] = "Edit RSVP Options"
-    block_list[-1]["elements"][-1]["action_id"] = "edit_rsvp_options_modal"
-    block_list[-1]["elements"][-1]["value"] = f"{ts}-{channel}"
+        # Edit RSVP options button
+        block_list[-1]["elements"].append(copy(blocks.button))
+        block_list[-1]["elements"][-1]["text"]["text"] = "Edit RSVP Options"
+        block_list[-1]["elements"][-1]["action_id"] = "edit_rsvp_options_modal"
+        block_list[-1]["elements"][-1]["value"] = f"{ts}-{channel}"
 
     # Event title
     block_list = add_block(block_list=block_list, block=blocks.text_question)
@@ -254,9 +262,9 @@ def format_edit_event(event: dict, ts: str, channel: str) -> list[dict]:
 
     # Event start time
     block_list = add_block(block_list=block_list, block=blocks.datetime_select)
-    block_list[-1]["element"]["action_id"] = "start_time"
-    block_list[-1]["block_id"] = "start_time"
-    block_list[-1]["element"]["initial_date_time"] = event["start"].timestamp()
+    block_list[-1]["element"]["action_id"] = "start"
+    block_list[-1]["block_id"] = "start"
+    block_list[-1]["element"]["initial_date_time"] = int(event["start"].timestamp())
     block_list[-1]["label"]["text"] = "Event Start Time"
     block_list[-1]["element"].pop("placeholder")
 
@@ -267,9 +275,9 @@ def format_edit_event(event: dict, ts: str, channel: str) -> list[dict]:
     block_list[-1]["block_id"] = "rsvp_deadline"
     block_list[-1]["label"]["text"] = "RSVP Deadline"
     if event["rsvp_deadline"] != event["start"]:
-        block_list[-1]["element"]["initial_date_time"] = event[
-            "rsvp_deadline"
-        ].timestamp()
+        block_list[-1]["element"]["initial_date_time"] = int(
+            event["rsvp_deadline"].timestamp()
+        )
     block_list[-1]["element"].pop("placeholder")
     block_list = add_block(block_list=block_list, block=blocks.context)
     block_list[-1]["elements"][0]["text"] = "Leave blank to use the event start time"
@@ -353,6 +361,48 @@ def format_edit_rsvp_options(event: dict, ts: str, channel: str) -> list[dict]:
     # Trim the last divider
     if block_list[-1]["type"] == "divider":
         block_list.pop()
+
+    return block_list
+
+
+def format_create_event_modal(channel: str) -> list[dict]:
+    """Format the blocks for a modal to create an event"""
+
+    block_list = []
+    block_list = add_block(block_list=block_list, block=blocks.channel_select)
+    block_list[-1]["element"]["action_id"] = "channel"
+    block_list[-1]["label"]["text"] = "Select a channel for your event RSVP"
+    block_list[-1]["block_id"] = "channel"
+    block_list[-1]["element"].pop("placeholder")
+    block_list[-1]["element"]["initial_channel"] = channel
+
+    block_list = add_block(block_list=block_list, block=blocks.context)
+    block_list[-1]["elements"][0]["text"] = (
+        "Choose wisely! This cannot be changed later."
+    )
+
+    return block_list
+
+
+def app_home(user: str) -> list[dict]:
+    """Format the blocks for the app home tab."""
+
+    block_list = []
+
+    block_list = add_block(block_list=block_list, block=blocks.header)
+    block_list = inject_text(block_list=block_list, text=strings.app_home_title)
+    block_list[-1]["block_id"] = "title"
+
+    block_list = add_block(block_list=block_list, block=blocks.text)
+    block_list = inject_text(block_list=block_list, text=strings.app_home_description)
+    block_list[-1]["block_id"] = "description"
+
+    # Add create event button as accessory
+    block_list[-1]["accessory"] = copy(blocks.button)
+    block_list[-1]["accessory"]["text"]["text"] = "Create Event"
+    block_list[-1]["accessory"]["value"] = user
+    block_list[-1]["accessory"]["action_id"] = "create_event_modal"
+    block_list[-1]["accessory"]["style"] = "primary"
 
     return block_list
 

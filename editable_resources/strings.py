@@ -19,3 +19,8 @@ rsvp_slack_not_added = "The following {user_plural} already attending:\n{user_li
 not_host = "You are not listed as a host for this event. Please contact the event host if you need to make changes."
 host_can_edit = "Hosts you add here will be able to edit the event (including removing you as a host)"
 edit_rsvp_options = "Renaming an option *will not remove* the users who have already RSVP'd to it. Use this function responsibly."
+app_home_title = "Event RSVPs"
+app_home_description = (
+    "You can use this space to create events and (one day) manage your RSVPs!"
+)
+create_event = "Create your event! An event with an engaging description and a striking image has a better chance of attracting attendees.\n\nYou'll be able to edit it later and add RSVP options and guests as desired."

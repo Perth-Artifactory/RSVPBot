@@ -128,6 +128,16 @@ cal_select = {
     "placeholder": {"type": "plain_text", "text": ""},
 }
 
+channel_select = {
+    "type": "input",
+    "element": {
+        "type": "channels_select",
+        "placeholder": {"type": "plain_text", "text": "", "emoji": True},
+        "action_id": "",
+    },
+    "label": {"type": "plain_text", "text": "", "emoji": True},
+}
+
 file_input = {
     "type": "input",
     "label": {"type": "plain_text", "text": ""},

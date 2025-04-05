@@ -3,7 +3,7 @@ import logging
 import re
 import sys
 from pprint import pprint
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
@@ -535,16 +535,22 @@ def write_edit_event(ack, body):
     ack()
 
     ts, channel = body["view"]["private_metadata"].split("-")
-    user = body["user"]["id"]
 
-    # Get a fresh copy of the event message
-    message = app.client.conversations_history(
-        channel=channel, inclusive=True, oldest=ts, limit=1
-    )
-    message = message["messages"][0]
+    # If the ts has a value of NEW, it means the user is creating a new event
+    if ts == "NEW":
+        # There's no existing event to retrieve
+        event = {}
+        event["rsvp_options"] = {}
 
-    # Parse the event data from the message
-    event = misc.parse_event(message["blocks"])
+    else:
+        # Get a fresh copy of the event message
+        message = app.client.conversations_history(
+            channel=channel, inclusive=True, oldest=ts, limit=1
+        )
+        message = message["messages"][0]
+
+        # Parse the event data from the message
+        event = misc.parse_event(message["blocks"])
 
     # Get the new event data from the modal
     for key in body["view"]["state"]["values"]:
@@ -563,17 +569,48 @@ def write_edit_event(ack, body):
     # Convert the event back into blocks
     blocks = block_formatters.format_event(event=event)
 
-    # Update the message
-    try:
-        app.client.chat_update(
-            channel=channel,
-            ts=ts,
-            blocks=blocks,
-            text=message["text"],
+    # If the event already exists update the event, if it doesn't create the event post
+
+    if ts == "NEW":
+        # Check that we're in the channel and join if we're not
+        current_channels = app.client.conversations_list(
+            exclude_archived=True, types="public_channel,private_channel"
         )
-    except SlackApiError as e:
-        logger.error(f"Error updating message: {e.response['error']}")
-        logger.error(e.response)
+        if channel not in [c["id"] for c in current_channels["channels"]]:
+            app.client.conversations_join(channel=channel)
+
+        try:
+            response = app.client.chat_postMessage(
+                channel=channel,
+                blocks=blocks,
+                text=f"RSVP for {event['title']}!",
+            )
+
+            try:
+                r = app.client.chat_postMessage(
+                    channel=channel,
+                    blocks=block_formatters.format_admin_prompt(event=event),
+                    text="Admin tools",
+                    thread_ts=response["ts"],
+                )
+            except SlackApiError as e:
+                logger.error(f"Error posting message: {e.response['error']}")
+                logger.error(e.response)
+        except SlackApiError as e:
+            logger.error(f"Error posting message: {e.response['error']}")
+            logger.error(e.response)
+
+    else:
+        try:
+            app.client.chat_update(
+                channel=channel,
+                ts=ts,
+                blocks=blocks,
+                text=message["text"],
+            )
+        except SlackApiError as e:
+            logger.error(f"Error updating message: {e.response['error']}")
+            logger.error(e.response)
 
 
 @app.action("edit_rsvp_modal")
@@ -833,6 +870,107 @@ def add_rsvp_option(ack, body):
     except SlackApiError as e:
         logger.error(f"Error opening modal: {e.response['error']}")
         logger.error(e.response)
+
+
+# listen for app home opened events
+@app.event("app_home_opened")
+def update_home_tab(client, event, logger):
+    """Update the home tab when the app is opened"""
+
+    user = event["user"]
+
+    logger.info(f"Updating home tab for {user}")
+    try:
+        # Call the views.publish method using the WebClient
+        client.views_publish(
+            user_id=event["user"],
+            view={
+                "type": "home",
+                "callback_id": "home",
+                "blocks": block_formatters.app_home(user=user),
+            },
+        )
+    except SlackApiError as e:
+        logger.error(f"Error publishing home tab: {e.response['error']}")
+        logger.error(e.response)
+
+
+@app.action("create_event_modal")
+def create_event_modal(ack, body):
+    """Send the modal to create a new event"""
+
+    ack()
+
+    # Open a new modal
+    try:
+        app.client.views_open(
+            trigger_id=body["trigger_id"],
+            view={
+                "type": "modal",
+                "callback_id": "create_event",
+                "title": {"type": "plain_text", "text": "Create Event"},
+                "blocks": block_formatters.format_create_event_modal(
+                    channel=config["slack"]["rsvp_channel"]
+                ),
+                "submit": {"type": "plain_text", "text": "Create"},
+                "close": {"type": "plain_text", "text": "Cancel"},
+                "clear_on_close": True,
+            },
+        )
+    except SlackApiError as e:
+        logger.error(f"Error opening modal: {e.response['error']}")
+        logger.error(e.response)
+
+
+@app.view("create_event")
+def create_event(ack, body, logger):
+    """Handle the event creation modal submission"""
+    ack()
+
+    # Get the channel to post the event to
+    channel = body["view"]["state"]["values"]["channel"]["channel"]["selected_channel"]
+
+    # Get the user so we can set them as a host
+    user = body["user"]["id"]
+
+    # Create a placeholder event
+
+    event = {
+        "title": "New Event",
+        "description": "New Event Description",
+        "rsvp_options": {"Attending": {}},
+        "start": datetime.now() + timedelta(days=3),
+        "rsvp_deadline": datetime.now() + timedelta(days=2),
+        "price": "Free",
+        "hosts": [user],
+    }
+
+    # Generate an edit event modal with the fake event data
+    blocks = block_formatters.format_edit_event(
+        event=event,
+        ts="NEW",
+        channel=channel,
+    )
+
+    # Open a new modal
+    try:
+        app.client.views_open(
+            trigger_id=body["trigger_id"],
+            view={
+                "type": "modal",
+                "callback_id": "write_edit_event",
+                "title": {"type": "plain_text", "text": "Create Event"},
+                "blocks": blocks,
+                "close": {"type": "plain_text", "text": "Cancel"},
+                "submit": {"type": "plain_text", "text": "Create"},
+                "private_metadata": f"NEW-{channel}",
+                "clear_on_close": True,
+            },
+        )
+    except SlackApiError as e:
+        logger.error(f"Error opening modal: {e.response['error']}")
+        logger.error(e.response)
+        pprint(blocks)
 
 
 # Retrieve all users in the admin group at runtime
