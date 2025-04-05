@@ -59,6 +59,9 @@ def rsvp(ack, body):
     """Respond to specific RSVP button actions"""
     ack()
 
+    channel = body["channel"]["id"]
+    ts = body["message"]["ts"]
+
     # Parse event data from the post back into a dictionary
     event = misc.parse_event(body["message"]["blocks"])
 
@@ -121,9 +124,9 @@ def rsvp(ack, body):
         logging.info("User has already RSVP'd, sending modal with extra options")
 
         option_blocks = block_formatters.modal_rsvp_options(
-            ts=body["message"]["ts"],
+            ts=ts,
             attend_type=rsvp_option,
-            channel=body["channel"]["id"],
+            channel=channel,
         )
 
         # Open a new modal
@@ -145,19 +148,58 @@ def rsvp(ack, body):
     else:
         event["rsvp_options"][rsvp_option][user] = 1
 
-    # Convert the event back into blocks
-    blocks = block_formatters.format_event(event=event)
+        # Convert the event back into blocks
+        blocks = block_formatters.format_event(event=event)
 
-    # Update the message
-    try:
-        app.client.chat_update(
-            channel=body["channel"]["id"],
-            ts=body["message"]["ts"],
-            blocks=blocks,
-            text=body["message"]["text"],
+        # Update the message
+        try:
+            app.client.chat_update(
+                channel=channel,
+                ts=ts,
+                blocks=blocks,
+                text=body["message"]["text"],
+            )
+        except SlackApiError as e:
+            logger.error(f"Error updating message: {e.response['error']}")
+
+        # Get a permalink to the message
+        try:
+            permalink = app.client.chat_getPermalink(channel=channel, message_ts=ts)[
+                "permalink"
+            ]
+        except SlackApiError as e:
+            logger.error(f"Error getting permalink: {e.response['error']}")
+            logger.error(e.response)
+
+            # We can't send a useful DM if we don't have a permalink
+            return
+
+        # Send a DM to the user as a record of the RSVP
+        dm_blocks = block_formatters.format_event_dm(
+            event=event,
+            message="You have RSVP'd to an event",
+            event_link=permalink,
+            rsvp_option=rsvp_option,
         )
-    except SlackApiError as e:
-        logger.error(f"Error updating message: {e.response['error']}")
+        try:
+            misc.send_dm(
+                slack_id=user,
+                message="You have RSVP'd to an event",
+                slack_app=app,
+                blocks=dm_blocks,
+                metadata={
+                    "event_type": "rsvp",
+                    "event_payload": {
+                        "ts": ts,
+                        "channel": channel,
+                        "rsvp_option": rsvp_option,
+                        "event_time": int(event["start"].timestamp()),
+                    },
+                },
+            )
+        except SlackApiError as e:
+            logger.error(f"Error sending DM: {e.response['error']}")
+            logger.error(e.response)
 
 
 @app.action("remove_rsvp")
@@ -220,6 +262,45 @@ def remove_rsvp(ack, body):
         logger.error(f"Error opening modal: {e.response['error']}")
         logger.error(e.response)
 
+    # Get the permalink to the event message
+    try:
+        permalink = app.client.chat_getPermalink(channel=channel, message_ts=ts)[
+            "permalink"
+        ]
+    except SlackApiError as e:
+        logger.error(f"Error getting permalink: {e.response['error']}")
+        logger.error(e.response)
+
+        # We can't send a useful DM if we don't have a permalink
+        return
+
+    # Send a DM to the user as a record of the RSVP removal
+    dm_blocks = block_formatters.format_event_dm(
+        event=event,
+        message="Your RSVP to an event has been removed",
+        event_link=permalink,
+        rsvp_option=attend_type,
+    )
+    try:
+        misc.send_dm(
+            slack_id=user,
+            message="Your RSVP to an event has been removed",
+            slack_app=app,
+            blocks=dm_blocks,
+            metadata={
+                "event_type": "rsvp_removed",
+                "event_payload": {
+                    "ts": ts,
+                    "channel": channel,
+                    "rsvp_option": attend_type,
+                    "event_time": int(event["start"].timestamp()),
+                },
+            },
+        )
+    except SlackApiError as e:
+        logger.error(f"Error sending DM: {e.response['error']}")
+        logger.error(e.response)
+
 
 @app.action("remove_rsvp_modal")
 def remove_rsvp_modal(ack, body):
@@ -227,6 +308,8 @@ def remove_rsvp_modal(ack, body):
     ack()
     # Get the info from the button
     ts, channel, user, attend_type = body["actions"][0]["value"].split("-")
+
+    admin = body["user"]["id"]
 
     # Retrieve the actual message we care about
     result = app.client.conversations_history(
@@ -241,22 +324,25 @@ def remove_rsvp_modal(ack, body):
     # Remove the user from the event if they exist
     if user in event["rsvp_options"][attend_type]:
         del event["rsvp_options"][attend_type][user]
+        removed = True
 
-    # Convert the event back into blocks
-    blocks = block_formatters.format_event(event=event)
+        # Convert the event back into blocks
+        blocks = block_formatters.format_event(event=event)
 
-    # Update the message
-    try:
-        app.client.chat_update(
-            channel=channel,
-            ts=ts,
-            blocks=blocks,
-            text=message["text"],
-        )
-    except SlackApiError as e:
-        logger.error(f"Error updating message: {e.response['error']}")
+        # Update the message
+        try:
+            app.client.chat_update(
+                channel=channel,
+                ts=ts,
+                blocks=blocks,
+                text=message["text"],
+            )
+        except SlackApiError as e:
+            logger.error(f"Error updating message: {e.response['error']}")
 
     # Update the current modal to show the RSVP was removed
+    # We update the modal even if we didn't find the attendee because
+    # they've removed themselves and we need to update the list
     blocks = block_formatters.format_edit_rsvps(event=event, ts=ts, channel=channel)
 
     try:
@@ -273,6 +359,39 @@ def remove_rsvp_modal(ack, body):
         )
     except SlackApiError as e:
         logger.error(f"Error opening modal: {e.response['error']}")
+        logger.error(e.response)
+
+    # Don't spend the time DMing a user until we've finished with the current interaction
+
+    permalink = app.client.chat_getPermalink(channel=channel, message_ts=ts)[
+        "permalink"
+    ]
+
+    # Send a DM to the user as a record of the RSVP removal
+    dm_blocks = block_formatters.format_event_dm(
+        event=event,
+        message="Your RSVP to an event has been removed",
+        event_link="",
+        rsvp_option=attend_type,
+    )
+    try:
+        misc.send_dm(
+            slack_id=user,
+            message=f"Your RSVP to an event has been removed by <@{admin}>",
+            slack_app=app,
+            blocks=dm_blocks,
+            metadata={
+                "event_type": "rsvp_removed_admin",
+                "event_payload": {
+                    "ts": ts,
+                    "channel": channel,
+                    "rsvp_option": attend_type,
+                    "event_time": int(event["start"].timestamp()),
+                },
+            },
+        )
+    except SlackApiError as e:
+        logger.error(f"Error sending DM: {e.response['error']}")
         logger.error(e.response)
 
 
@@ -334,6 +453,39 @@ def other_rsvp(ack, body):
         logger.error(f"Error opening modal: {e.response['error']}")
         logger.error(e.response)
 
+    # Send a DM to the user as a record of the RSVP
+
+    permalink = app.client.chat_getPermalink(channel=channel, message_ts=ts)[
+        "permalink"
+    ]
+
+    dm_blocks = block_formatters.format_event_dm(
+        event=event,
+        message="You have increased your guest RSVP for an event",
+        event_link=permalink,
+        rsvp_option=attend_type,
+    )
+
+    try:
+        misc.send_dm(
+            slack_id=user,
+            message="You have increased your guest RSVP for an event",
+            slack_app=app,
+            blocks=dm_blocks,
+            metadata={
+                "event_type": "rsvp_guest",
+                "event_payload": {
+                    "ts": ts,
+                    "channel": channel,
+                    "rsvp_option": attend_type,
+                    "event_time": int(event["start"].timestamp()),
+                },
+            },
+        )
+    except SlackApiError as e:
+        logger.error(f"Error sending DM: {e.response['error']}")
+        logger.error(e.response)
+
 
 @app.action("other_slack_rsvp")
 def modal_other_slack_rsvp(ack, body):
@@ -364,10 +516,7 @@ def modal_other_slack_rsvp(ack, body):
 def multi_rsvp_submit(ack, body, logger):
     ack()
 
-    pprint(body)
-
     # Parse the private metadata
-    print(body["view"]["private_metadata"])
     ts, attend_type, channel, usertype = body["view"]["private_metadata"].split("-")
 
     user = body["user"]["id"]
@@ -468,6 +617,38 @@ def multi_rsvp_submit(ack, body, logger):
         except SlackApiError as e:
             logger.error(f"Error opening modal: {e.response['error']}")
             logger.error(e.response)
+
+    # Send a DM to the user as a record of the RSVP
+
+    permalink = app.client.chat_getPermalink(channel=channel, message_ts=ts)[
+        "permalink"
+    ]
+
+    dm_blocks = block_formatters.format_event_dm(
+        event=event,
+        message="You have been RSVP'd to an event",
+        event_link=permalink,
+        rsvp_option=attend_type,
+    )
+    try:
+        misc.send_dm(
+            slack_id=user,
+            message="You have been RSVP'd to an event by <@{user}>",
+            slack_app=app,
+            blocks=dm_blocks,
+            metadata={
+                "event_type": "rsvp_by_other",
+                "event_payload": {
+                    "ts": ts,
+                    "channel": channel,
+                    "rsvp_option": attend_type,
+                    "event_time": int(event["start"].timestamp()),
+                },
+            },
+        )
+    except SlackApiError as e:
+        logger.error(f"Error sending DM: {e.response['error']}")
+        logger.error(e.response)
 
 
 @app.action("admin_event")
@@ -874,10 +1055,27 @@ def add_rsvp_option(ack, body):
 
 # listen for app home opened events
 @app.event("app_home_opened")
-def update_home_tab(client, event, logger):
+def update_home_tab(client, event):
     """Update the home tab when the app is opened"""
 
     user = event["user"]
+
+    # Get our DM with the user
+    try:
+        dm_channel = app.client.conversations_open(users=user)
+    except SlackApiError as e:
+        logger.error(f"Error opening DM: {e.response['error']}")
+        logger.error(e.response)
+
+    # Get all messages from the dm
+    try:
+        messages = app.client.conversations_history(
+            channel=dm_channel["channel"]["id"],
+            limit=999,
+        )
+    except SlackApiError as e:
+        logger.error(f"Error retrieving messages: {e.response['error']}")
+        logger.error(e.response)
 
     logger.info(f"Updating home tab for {user}")
     try:
@@ -887,7 +1085,11 @@ def update_home_tab(client, event, logger):
             view={
                 "type": "home",
                 "callback_id": "home",
-                "blocks": block_formatters.app_home(user=user),
+                "blocks": block_formatters.app_home(
+                    user=user,
+                    existing_home=event["view"]["blocks"],
+                    past_messages=messages["messages"],
+                ),
             },
         )
     except SlackApiError as e:

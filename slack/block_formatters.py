@@ -384,7 +384,45 @@ def format_create_event_modal(channel: str) -> list[dict]:
     return block_list
 
 
-def app_home(user: str) -> list[dict]:
+def format_event_dm(
+    event: dict, message: str, event_link: str, rsvp_option: str
+) -> list[dict]:
+    """Formats an event into a list of blocks for display in a DM."""
+
+    block_list = []
+
+    block_list = add_block(block_list=block_list, block=blocks.text)
+    block_list = inject_text(block_list=block_list, text=message)
+
+    # Attach fields with event info
+    info_fields = []
+
+    info_fields.append(copy(blocks.field))
+    info_fields[-1]["text"] = f"*Event*: {event['title']}"
+    info_fields.append(copy(blocks.field))
+    info_fields[-1]["text"] = (
+        f"*When*: <!date^{int(event['start'].timestamp())}^{{time}} {{date_long_pretty}}|{event['start'].strftime('%A, %B %d, %Y %I:%M %p')}>"
+    )
+    if event["rsvp_deadline"] != event["start"]:
+        info_fields.append(copy(blocks.field))
+        info_fields[-1]["text"] = (
+            f"*Change deadline*: <!date^{int(event['rsvp_deadline'].timestamp())}^{{time}} {{date_long_pretty}}|{event['rsvp_deadline'].strftime('%A, %B %d, %Y %I:%M %p')}>"
+        )
+
+    if event.get("price"):
+        info_fields.append(copy(blocks.field))
+        info_fields[-1]["text"] = f"*Price*: {event['price']}"
+
+    info_fields.append(copy(blocks.field))
+    info_fields[-1]["text"] = f"*RSVP type*: {rsvp_option}"
+
+    info_fields.append(copy(blocks.field))
+    info_fields[-1]["text"] = f"<{event_link}|*Event details>"
+
+    return block_list
+
+
+def app_home(user: str, existing_home: list, past_messages: list) -> list[dict]:
     """Format the blocks for the app home tab."""
 
     block_list = []
@@ -403,6 +441,13 @@ def app_home(user: str) -> list[dict]:
     block_list[-1]["accessory"]["value"] = user
     block_list[-1]["accessory"]["action_id"] = "create_event_modal"
     block_list[-1]["accessory"]["style"] = "primary"
+
+    # Process existing events
+    home_events = []
+    for block in existing_home:
+        if block["block_id"].startswith("event_"):
+            home_events.append(block)
+            block_list.append(block)
 
     return block_list
 

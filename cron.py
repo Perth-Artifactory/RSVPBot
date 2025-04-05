@@ -187,6 +187,7 @@ for event in formatted_events:
                         blocks=blocks,
                         text=f"RSVP for {converted_event['title']}!",
                     )
+                    ts = response["ts"]
                 except SlackApiError as e:
                     logger.error(f"Error posting message: {e.response['error']}")
                     logger.error(e.response)
@@ -201,7 +202,7 @@ for event in formatted_events:
                             event=converted_event
                         ),
                         text="Admin tools",
-                        thread_ts=response["ts"],
+                        thread_ts=ts,
                     )
                 except SlackApiError as e:
                     logger.error(f"Error posting message: {e.response['error']}")
@@ -220,8 +221,48 @@ for event in formatted_events:
                                 title=converted_event["title"],
                                 regulars_str=regulars_str,
                             ),
-                            thread_ts=response["ts"],
+                            thread_ts=ts,
                         )
                     except SlackApiError as e:
                         logger.error(f"Error posting message: {e.response['error']}")
                         logger.error(e.response)
+
+                # Send RSVP notifications to auto RSVP users
+                if converted_event.get("auto_rsvp_users"):
+                    permalink = app.client.chat_getPermalink(
+                        channel=converted_event["channel"], message_ts=ts
+                    )["permalink"]
+
+                    rsvp_option = list(converted_event["rsvp_options"])[0]
+
+                    for auto_user in converted_event["auto_rsvp_users"]:
+                        dm_blocks = block_formatters.format_event_dm(
+                            event=converted_event,
+                            message="You have been auto RSVP'd to an event",
+                            event_link=permalink,
+                            rsvp_option=rsvp_option,
+                        )
+
+                        try:
+                            misc.send_dm(
+                                slack_id=auto_user,
+                                blocks=dm_blocks,
+                                message="You have been auto RSVP'd to an event",
+                                slack_app=app,
+                                metadata={
+                                    "event_type": "rsvp_auto",
+                                    "event_payload": {
+                                        "ts": ts,
+                                        "channel": converted_event["channel"],
+                                        "rsvp_option": rsvp_option,
+                                        "event_time": int(
+                                            converted_event["start"].timestamp()
+                                        ),
+                                    },
+                                },
+                            )
+                        except SlackApiError as e:
+                            logger.error(
+                                f"Error posting message: {e.response['error']}"
+                            )
+                            logger.error(e.response)
