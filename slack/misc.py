@@ -104,9 +104,12 @@ def send_dm(
     unfurl_media: bool = False,
     username: str | None = None,
     photo: str | None = None,
-) -> bool:
+    metadata: dict | None = None,
+) -> bool | str:
     """
     Send a direct message to a user including conversation creation
+
+    Returns the conversation ID of the DM channel if successful, otherwise False
     """
 
     # Create a conversation
@@ -126,6 +129,7 @@ def send_dm(
             unfurl_media=unfurl_media,
             username=username,
             icon_url=photo,
+            metadata=metadata,
         )
 
     except slack_sdk.errors.SlackApiError as e:  # type: ignore
@@ -139,7 +143,7 @@ def send_dm(
         return False
 
     logger.info(f"Sent message to {slack_id}")
-    return True
+    return m["channel"]["id"]
 
 
 def download_file(url: str, config: dict) -> bytes:
@@ -310,8 +314,11 @@ def create_event_info(event: dict) -> dict:
     for rsvp_type in event.get("rsvp_options", ["Attending"]):
         event_info["rsvp_options"][rsvp_type] = {}
 
+    # We can get the first item in the ordered dict by converting it to a list
     if event.get("auto_rsvp"):
-        event_info["rsvps"][0] = {user: 1 for user in event["auto_rsvp"]}
+        event_info["rsvp_options"][list(event_info["rsvp_options"])[0]] = {
+            user: 1 for user in event["auto_rsvp"]
+        }
 
     event_info["start"] = event["start"] + timedelta(hours=event.get("event_offset", 0))
 
