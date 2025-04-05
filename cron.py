@@ -186,7 +186,6 @@ for event in formatted_events:
                         channel=converted_event["channel"],
                         blocks=blocks,
                         text=f"RSVP for {converted_event['title']}!",
-                        username="Event RSVPs",
                     )
                 except SlackApiError as e:
                     logger.error(f"Error posting message: {e.response['error']}")
@@ -203,7 +202,6 @@ for event in formatted_events:
                         ),
                         text="Admin tools",
                         thread_ts=response["ts"],
-                        username="Event RSVPs",
                     )
                 except SlackApiError as e:
                     logger.error(f"Error posting message: {e.response['error']}")
