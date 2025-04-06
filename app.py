@@ -61,6 +61,8 @@ def rsvp(ack, body):
 
     channel = body["channel"]["id"]
     ts = body["message"]["ts"]
+    rsvp_option = body["actions"][0]["value"]
+    user = body["user"]["id"]
 
     # Parse event data from the post back into a dictionary
     event = misc.parse_event(body["message"]["blocks"])
@@ -113,11 +115,38 @@ def rsvp(ack, body):
                 logger.error(f"Error opening modal: {e.response['error']}")
                 logger.error(e.response)
 
+    if config["slack"]["member_status_emoji"] in rsvp_option and not denied:
+        # Get the status of the member
+        try:
+            user_info = app.client.users_info(user=user)
+            user_status = user_info["user"].get("profile", {}).get("status_emoji", "")
+
+            # Remove : from the user status
+            user_status.replace(":", "")
+
+            if user_status != config["slack"]["member_status_emoji"]:
+                denied = True
+
+                # Let the user know
+                app.client.views_open(
+                    trigger_id=body["trigger_id"],
+                    view={
+                        "type": "modal",
+                        "callback_id": "members_only_rsvp",
+                        "title": {"type": "plain_text", "text": "Members only"},
+                        "blocks": block_formatters.simple_modal_blocks(
+                            text=strings.members_only_rsvp
+                        ),
+                        "close": {"type": "plain_text", "text": "Close"},
+                        "clear_on_close": True,
+                    },
+                )
+        except SlackApiError as e:
+            logger.error(f"Error getting user info: {e.response['error']}")
+            logger.error(e.response)
+
     if denied:
         return
-
-    rsvp_option = body["actions"][0]["value"]
-    user = body["user"]["id"]
 
     if user in event["rsvp_options"][rsvp_option]:
         # User is already attending, send them a modal instead
@@ -277,14 +306,14 @@ def remove_rsvp(ack, body):
     # Send a DM to the user as a record of the RSVP removal
     dm_blocks = block_formatters.format_event_dm(
         event=event,
-        message="Your RSVP to an event has been removed",
+        message=strings.notice_rsvp_removed,
         event_link=permalink,
         rsvp_option=attend_type,
     )
     try:
         misc.send_dm(
             slack_id=user,
-            message="Your RSVP to an event has been removed",
+            message=strings.notice_rsvp_removed,
             slack_app=app,
             blocks=dm_blocks,
             metadata={
@@ -324,7 +353,6 @@ def remove_rsvp_modal(ack, body):
     # Remove the user from the event if they exist
     if user in event["rsvp_options"][attend_type]:
         del event["rsvp_options"][attend_type][user]
-        removed = True
 
         # Convert the event back into blocks
         blocks = block_formatters.format_event(event=event)
@@ -370,8 +398,8 @@ def remove_rsvp_modal(ack, body):
     # Send a DM to the user as a record of the RSVP removal
     dm_blocks = block_formatters.format_event_dm(
         event=event,
-        message="Your RSVP to an event has been removed",
-        event_link="",
+        message=strings.notice_rsvp_removed,
+        event_link=permalink,
         rsvp_option=attend_type,
     )
     try:
@@ -733,19 +761,27 @@ def write_edit_event(ack, body):
         # Parse the event data from the message
         event = misc.parse_event(message["blocks"])
 
+    changes = {}
+
     # Get the new event data from the modal
     for key in body["view"]["state"]["values"]:
         data = body["view"]["state"]["values"][key][key]
         if data["type"] == "plain_text_input":
+            if event.get(key) != data["value"]:
+                changes[key] = data["value"]
             event[key] = data["value"]
         elif data["type"] == "multi_users_select":
             event[key] = data["selected_users"]
         elif data["type"] == "datetimepicker":
             try:
-                event[key] = datetime.fromtimestamp(data["selected_date_time"])
+                time = datetime.fromtimestamp(data["selected_date_time"])
             except TypeError:
                 # Remove the key if the user didn't select a date
                 del event[key]
+                changes[key] = None
+            if event.get(key) != time:
+                changes[key] = time
+            event[key] = time
 
     # Convert the event back into blocks
     blocks = block_formatters.format_event(event=event)
@@ -768,7 +804,7 @@ def write_edit_event(ack, body):
             )
 
             try:
-                r = app.client.chat_postMessage(
+                app.client.chat_postMessage(
                     channel=channel,
                     blocks=block_formatters.format_admin_prompt(event=event),
                     text="Admin tools",
@@ -793,6 +829,50 @@ def write_edit_event(ack, body):
             logger.error(f"Error updating message: {e.response['error']}")
             logger.error(e.response)
 
+        # Check for meaningful changes
+        if "description" in changes:
+            changes.pop("description")
+
+        if changes:
+            # Let RSVP'd users know about the changes
+            notify_users = [
+                user
+                for option in event["rsvp_options"].values()
+                for user in option.keys()
+            ]
+            notify_users = list(set(notify_users))
+
+            permalink = app.client.chat_getPermalink(channel=channel, message_ts=ts)[
+                "permalink"
+            ]
+            dm_blocks = block_formatters.format_event_dm(
+                event=event,
+                message="An event you RSVP'd to has been updated",
+                event_link=permalink,
+                rsvp_option="",
+                highlight=changes,
+            )
+            for slack_id in notify_users:
+                try:
+                    misc.send_dm(
+                        slack_id=slack_id,
+                        message="The event you RSVP'd to has been updated",
+                        slack_app=app,
+                        blocks=dm_blocks,
+                        metadata={
+                            "event_type": "event_updated",
+                            "event_payload": {
+                                "ts": ts,
+                                "channel": channel,
+                                "rsvp_option": "",
+                                "event_time": int(event["start"].timestamp()),
+                            },
+                        },
+                    )
+                except SlackApiError as e:
+                    logger.error(f"Error sending DM: {e.response['error']}")
+                    logger.error(e.response)
+
 
 @app.action("edit_rsvp_modal")
 def modal_edit_rsvp(ack, body):
@@ -801,7 +881,6 @@ def modal_edit_rsvp(ack, body):
 
     # Get the original message this message was replied to
     ts, channel = body["view"]["private_metadata"].split("-")
-    user = body["user"]["id"]
 
     # Get event data
     message = app.client.conversations_history(
@@ -837,7 +916,6 @@ def edit_rsvp_options_modal(ack, body):
 
     # Get the original message this message was replied to
     ts, channel = body["view"]["private_metadata"].split("-")
-    user = body["user"]["id"]
 
     # Get event data
     message = app.client.conversations_history(
@@ -848,7 +926,10 @@ def edit_rsvp_options_modal(ack, body):
     event = misc.parse_event(message["blocks"])
 
     blocks = block_formatters.format_edit_rsvp_options(
-        event=event, ts=ts, channel=channel
+        event=event,
+        ts=ts,
+        channel=channel,
+        member_emoji=config["slack"]["member_status_emoji"],
     )
 
     try:
@@ -920,6 +1001,7 @@ def edit_rsvp_options(ack, body, logger):
                     message=dm_message,
                     event_link=permalink,
                     rsvp_option=new_name,
+                    highlight=["rsvp_option"],
                 )
 
                 for affected_user in event["rsvp_options"][new_name]:
@@ -1001,7 +1083,10 @@ def delete_rsvp_option(ack, body, logger):
 
     # Update the current modal to show the RSVP option was deleted
     blocks = block_formatters.format_edit_rsvp_options(
-        event=event, ts=ts, channel=channel
+        event=event,
+        ts=ts,
+        channel=channel,
+        member_emoji=config["slack"]["member_status_emoji"],
     )
 
     try:
@@ -1099,7 +1184,10 @@ def add_rsvp_option(ack, body):
 
     # Update the current modal to show the RSVP option was added
     blocks = block_formatters.format_edit_rsvp_options(
-        event=event, ts=ts, channel=channel
+        event=event,
+        ts=ts,
+        channel=channel,
+        member_emoji=config["slack"]["member_status_emoji"],
     )
 
     try:
@@ -1137,8 +1225,11 @@ def update_home_tab(client, event):
     # Get all messages from the dm
     try:
         messages = app.client.conversations_history(
-            channel=dm_channel["channel"]["id"],
-            limit=999,
+            channel=dm_channel["channel"]["id"], limit=999, include_all_metadata=True
+        )["messages"]
+
+        events = misc.extract_events_from_dms(
+            messages=messages, bot_id=bot_id, slack_app=app, user_id=user
         )
     except SlackApiError as e:
         logger.error(f"Error retrieving messages: {e.response['error']}")
@@ -1154,8 +1245,7 @@ def update_home_tab(client, event):
                 "callback_id": "home",
                 "blocks": block_formatters.app_home(
                     user=user,
-                    existing_home=event["view"]["blocks"],
-                    past_messages=messages["messages"],
+                    events=events,
                 ),
             },
         )
@@ -1242,6 +1332,12 @@ def create_event(ack, body, logger):
         pprint(blocks)
 
 
+@app.action("event_detail_link")
+def ignore_link_press(ack):
+    """Ignore the link press event"""
+    ack()
+
+
 # Retrieve all users in the admin group at runtime
 admins = []
 if config["slack"].get("admin_group"):
@@ -1261,6 +1357,7 @@ else:
         "Something went wrong with the admin group (or it wasn't specified). Only event hosts will be able to edit events"
     )
 
+bot_id = app.client.auth_test()["user_id"]
 
 # Start the app
 if __name__ == "__main__":

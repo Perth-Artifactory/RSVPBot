@@ -143,7 +143,7 @@ def send_dm(
         return False
 
     logger.info(f"Sent message to {slack_id}")
-    return m["channel"]["id"]
+    return m["channel"]
 
 
 def download_file(url: str, config: dict) -> bytes:
@@ -337,6 +337,92 @@ def create_event_info(event: dict) -> dict:
         event_info["regulars"] = event["regulars"]
 
     return event_info
+
+
+def extract_events_from_dms(
+    messages: list, bot_id: str, slack_app: bolt.App, user_id: str
+) -> list:
+    """Extract events from a list of messages
+
+    Injects the permalink and selected RSVP option(s) into the event data"""
+    event_changes = {}
+
+    for message in messages:
+        if message["user"] == bot_id:
+            event_ts = message["metadata"]["event_payload"].get("ts")
+            if not event_ts:
+                continue
+            if event_ts not in event_changes:
+                event_changes[event_ts] = []
+
+            event_changes[event_ts].append(
+                {
+                    "timestamp": message["ts"].split(".")[0],
+                    "data": message["metadata"]["event_payload"],
+                    "type": message["metadata"]["event_type"],
+                }
+            )
+            event_changes[event_ts][-1]["data"]["event_type"] = message["metadata"][
+                "event_type"
+            ]
+
+    events_to_retrieve = []
+
+    for event in event_changes:
+        last_known_event_timestamp = event_changes[event][-1]["data"]["event_time"]
+        last_known_event_date = datetime.fromtimestamp(last_known_event_timestamp)
+
+        # If the event is more than one day in the past, ignore it
+        if last_known_event_date < datetime.now() - timedelta(days=1):
+            continue
+
+        # Check for RSVP removal events
+        if "remove" in event_changes[event][-1]["data"]["event_type"]:
+            continue
+
+        events_to_retrieve.append(
+            {"ts": event, "channel": event_changes[event][-1]["data"]["channel"]}
+        )
+
+    # Sort the events by timestamp
+    events_to_retrieve.sort(key=lambda x: x["ts"])
+
+    events = []
+
+    for event in events_to_retrieve:
+        message = slack_app.client.conversations_history(
+            channel=event["channel"],
+            oldest=event["ts"],
+            limit=1,
+            inclusive=True,
+        )["messages"][0]
+
+        if not message:
+            continue
+
+        # Extract the event data from the message
+
+        event_data = parse_event(message["blocks"])
+
+        # Unlike other event data packages this one is primarily used for home generation
+        # We retrieve the permalink and selected rsvp here to make the app home code cleaner
+
+        permalink = slack_app.client.chat_getPermalink(
+            channel=event["channel"], message_ts=event["ts"]
+        )["permalink"]
+        event_data["link"] = permalink
+
+        selected_rsvp = []
+
+        for rsvp_option in event_data["rsvp_options"]:
+            if user_id in event_data["rsvp_options"][rsvp_option]:
+                selected_rsvp.append(rsvp_option)
+
+        event_data["selected_rsvp"] = ", ".join(selected_rsvp)
+
+        events.append(event_data)
+
+    return events
 
 
 with open("config.json") as f:

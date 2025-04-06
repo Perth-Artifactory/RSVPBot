@@ -1,6 +1,5 @@
 import logging
 from copy import deepcopy as copy
-from datetime import timedelta
 from pprint import pprint
 
 from editable_resources import strings
@@ -326,13 +325,15 @@ def format_edit_rsvps(event: dict, ts: str, channel: str) -> list[dict]:
     return block_list
 
 
-def format_edit_rsvp_options(event: dict, ts: str, channel: str) -> list[dict]:
+def format_edit_rsvp_options(
+    event: dict, ts: str, channel: str, member_emoji: str
+) -> list[dict]:
     block_list = []
 
     block_list = add_block(block_list=block_list, block=blocks.text)
     block_list = inject_text(
         block_list=block_list,
-        text=strings.edit_rsvp_options,
+        text=strings.edit_rsvp_options.format(member_emoji=member_emoji),
     )
     block_list[-1]["accessory"] = copy(blocks.button)
     block_list[-1]["accessory"]["text"]["text"] = "Add option"
@@ -385,44 +386,76 @@ def format_create_event_modal(channel: str) -> list[dict]:
 
 
 def format_event_dm(
-    event: dict, message: str, event_link: str, rsvp_option: str
+    event: dict,
+    event_link: str,
+    rsvp_option: str,
+    message: str | None = None,
+    highlight: list | dict = [],
+    highlight_emoji: str = "new",
+    detail_position: str = "field",
 ) -> list[dict]:
     """Formats an event into a list of blocks for display in a DM."""
 
+    # Ensure the highlight emoji is wrapped with colons
+    highlight_emoji = highlight_emoji.strip(":").join("::")
+
     block_list = []
 
+    if message:
+        body = message
+    else:
+        body = event["title"]
+
     block_list = add_block(block_list=block_list, block=blocks.text)
-    block_list = inject_text(block_list=block_list, text=message)
+    block_list = inject_text(block_list=block_list, text=body)
 
     # Attach fields with event info
     info_fields = []
 
-    info_fields.append(copy(blocks.field))
-    info_fields[-1]["text"] = f"*Event*: {event['title']}"
+    if message:
+        info_fields.append(copy(blocks.field))
+        info_fields[-1]["text"] = (
+            f"*Event*: {event['title']}{highlight_emoji if 'title' in highlight else ''}"
+        )
     info_fields.append(copy(blocks.field))
     info_fields[-1]["text"] = (
-        f"*When*: <!date^{int(event['start'].timestamp())}^{{time}} {{date_long_pretty}}|{event['start'].strftime('%A, %B %d, %Y %I:%M %p')}>"
+        f"*When*: <!date^{int(event['start'].timestamp())}^{{time}} {{date_long_pretty}}|{event['start'].strftime('%A, %B %d, %Y %I:%M %p')}>{highlight_emoji if 'start' in highlight else ''}"
     )
     if event["rsvp_deadline"] != event["start"]:
         info_fields.append(copy(blocks.field))
         info_fields[-1]["text"] = (
-            f"*Change deadline*: <!date^{int(event['rsvp_deadline'].timestamp())}^{{time}} {{date_long_pretty}}|{event['rsvp_deadline'].strftime('%A, %B %d, %Y %I:%M %p')}>"
+            f"*Change deadline*: <!date^{int(event['rsvp_deadline'].timestamp())}^{{time}} {{date_long_pretty}}|{event['rsvp_deadline'].strftime('%A, %B %d, %Y %I:%M %p')}>{highlight_emoji if 'rsvp_deadline' in highlight else ''}"
         )
 
     if event.get("price"):
         info_fields.append(copy(blocks.field))
-        info_fields[-1]["text"] = f"*Price*: {event['price']}"
+        info_fields[-1]["text"] = (
+            f"*Price*: {event['price']}{highlight_emoji if 'price' in highlight else ''}"
+        )
 
-    info_fields.append(copy(blocks.field))
-    info_fields[-1]["text"] = f"*RSVP type*: {rsvp_option}"
+    if rsvp_option:
+        info_fields.append(copy(blocks.field))
+        info_fields[-1]["text"] = (
+            f"*RSVP type*: {rsvp_option}{highlight_emoji if 'rsvp_option' in highlight else ''}"
+        )
 
-    info_fields.append(copy(blocks.field))
-    info_fields[-1]["text"] = f"<{event_link}|*Event details>"
+    if detail_position == "field":
+        info_fields.append(copy(blocks.field))
+        info_fields[-1]["text"] = f"<{event_link}|Event details>"
+
+    elif detail_position == "button":
+        block_list[-1]["accessory"] = copy(blocks.button)
+        block_list[-1]["accessory"]["text"]["text"] = "Event details"
+        block_list[-1]["accessory"]["action_id"] = "event_detail_link"
+        block_list[-1]["accessory"]["value"] = event_link
+        block_list[-1]["accessory"]["url"] = event_link
+
+    block_list[-1]["fields"] = info_fields
 
     return block_list
 
 
-def app_home(user: str, existing_home: list, past_messages: list) -> list[dict]:
+def app_home(user: str, events: list) -> list[dict]:
     """Format the blocks for the app home tab."""
 
     block_list = []
@@ -442,12 +475,24 @@ def app_home(user: str, existing_home: list, past_messages: list) -> list[dict]:
     block_list[-1]["accessory"]["action_id"] = "create_event_modal"
     block_list[-1]["accessory"]["style"] = "primary"
 
-    # Process existing events
-    home_events = []
-    for block in existing_home:
-        if block["block_id"].startswith("event_"):
-            home_events.append(block)
-            block_list.append(block)
+    block_list = add_block(block_list=block_list, block=blocks.divider)
+
+    # Add events
+
+    for event in events:
+        dm_blocks = format_event_dm(
+            event=event,
+            message="",
+            event_link=event["link"],
+            rsvp_option=event["selected_rsvp"],
+            detail_position="button",
+        )
+        block_list = add_block(block_list=block_list, block=dm_blocks)
+        block_list = add_block(block_list=block_list, block=blocks.divider)
+
+    # Remove the last divider if it exists
+    if block_list[-1]["type"] == "divider":
+        block_list.pop()
 
     return block_list
 
