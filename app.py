@@ -1210,48 +1210,10 @@ def add_rsvp_option(ack, body):
 
 # listen for app home opened events
 @app.event("app_home_opened")
-def update_home_tab(client, event):
+def update_home_tab(event):
     """Update the home tab when the app is opened"""
 
-    user = event["user"]
-
-    # Get our DM with the user
-    try:
-        dm_channel = app.client.conversations_open(users=user)
-    except SlackApiError as e:
-        logger.error(f"Error opening DM: {e.response['error']}")
-        logger.error(e.response)
-
-    # Get all messages from the dm
-    try:
-        messages = app.client.conversations_history(
-            channel=dm_channel["channel"]["id"], limit=999, include_all_metadata=True
-        )["messages"]
-
-        events = misc.extract_events_from_dms(
-            messages=messages, bot_id=bot_id, slack_app=app, user_id=user
-        )
-    except SlackApiError as e:
-        logger.error(f"Error retrieving messages: {e.response['error']}")
-        logger.error(e.response)
-
-    logger.info(f"Updating home tab for {user}")
-    try:
-        # Call the views.publish method using the WebClient
-        client.views_publish(
-            user_id=event["user"],
-            view={
-                "type": "home",
-                "callback_id": "home",
-                "blocks": block_formatters.app_home(
-                    user=user,
-                    events=events,
-                ),
-            },
-        )
-    except SlackApiError as e:
-        logger.error(f"Error publishing home tab: {e.response['error']}")
-        logger.error(e.response)
+    misc.update_home(user_id=event["user"], bot_id=bot_id, slack_app=app)
 
 
 @app.action("create_event_modal")
@@ -1359,7 +1321,63 @@ else:
 
 bot_id = app.client.auth_test()["user_id"]
 
-# Start the app
-if __name__ == "__main__":
-    handler = SocketModeHandler(app, config["slack"]["app_token"])
-    handler.start()
+# The cron mode renders the app home for every user in the workspace
+if "--cron" in sys.argv:
+    # Update homes for all slack users
+    logger.info("Updating homes for all users")
+
+    # Get a list of all users from slack
+    slack_response = app.client.users_list()
+    slack_users = []
+    while slack_response.data.get("response_metadata", {}).get("next_cursor"):  # type: ignore
+        slack_users += slack_response.data["members"]  # type: ignore
+        slack_response = app.client.users_list(
+            cursor=slack_response.data["response_metadata"]["next_cursor"]  # type: ignore
+        )
+    slack_users += slack_response.data["members"]  # type: ignore
+
+    users = []
+
+    # Convert slack response to list of users since it comes as an odd iterable
+    for user in slack_users:
+        if user["is_bot"] or user["deleted"] or user["id"] == "USLACKBOT":
+            continue
+        users.append(user)
+
+    logger.info(f"Found {len(users)} users")
+
+    x = 1
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    threads = []
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = []
+        for user in users:
+            user_id = user["id"]
+            futures.append(
+                executor.submit(
+                    misc.update_home,
+                    user_id=user_id,
+                    bot_id=bot_id,
+                    slack_app=app,
+                    silent=True,
+                )
+            )
+        for future in as_completed(futures):
+            try:
+                future.result()
+                x += 1
+                logger.info(f"Updated home ({x}/{len(users)})")
+            except Exception as e:
+                logger.error(f"Error updating home: {e}")
+
+    logger.info(f"All homes updated ({x - 1})")
+    sys.exit(0)
+
+else:
+    # Start the app
+    if __name__ == "__main__":
+        handler = SocketModeHandler(app, config["slack"]["app_token"])
+        handler.start()

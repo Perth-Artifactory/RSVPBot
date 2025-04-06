@@ -1,15 +1,18 @@
 import json
 import logging
-from pprint import pprint
-import requests
 import re
+from collections import OrderedDict
 from datetime import datetime, timedelta
+from pprint import pprint
 
 import jsonschema
-
+import requests
 import slack_bolt as bolt
-from collections import OrderedDict
 import slack_sdk.errors
+from slack_sdk.errors import SlackApiError
+import time
+
+from slack import block_formatters
 
 # Set up logging
 logger = logging.getLogger("slack.misc")
@@ -423,6 +426,69 @@ def extract_events_from_dms(
         events.append(event_data)
 
     return events
+
+
+def update_home(
+    user_id: str,
+    bot_id: str,
+    slack_app: bolt.App,
+    silent: bool = False,
+    limited: bool = False,
+) -> None:
+    """Updates the home tab for a user"""
+
+    wait = 2 if not limited else 10
+
+    # Get our DM with the user
+    try:
+        dm_channel = slack_app.client.conversations_open(users=user_id)
+    except SlackApiError as e:
+        if e.response["error"] == "ratelimited":
+            logger.info(f"Rate limited, retrying in {wait} seconds")
+            time.sleep(wait)
+            return update_home(user_id, bot_id, slack_app, silent, True)
+
+        logger.error(f"Error opening DM: {e.response['error']}")
+        logger.error(e.response)
+
+    # Get all messages from the dm
+    try:
+        messages = slack_app.client.conversations_history(
+            channel=dm_channel["channel"]["id"], limit=999, include_all_metadata=True
+        )["messages"]
+
+        events = extract_events_from_dms(
+            messages=messages, bot_id=bot_id, slack_app=slack_app, user_id=user_id
+        )
+    except SlackApiError as e:
+        if e.response["error"] == "ratelimited":
+            logger.info(f"Rate limited, retrying in {wait} seconds")
+            time.sleep(wait)
+            return update_home(user_id, bot_id, slack_app, silent, True)
+
+        logger.error(f"Error retrieving messages: {e.response['error']}")
+        logger.error(e.response)
+
+    if not silent:
+        logger.info(f"Updating home tab for {user_id}")
+    try:
+        home_blocks = block_formatters.app_home(
+            user=user_id,
+            events=events,
+        )
+        slack_app.client.views_publish(
+            user_id=user_id,
+            view={"type": "home", "callback_id": "home", "blocks": home_blocks},
+        )
+
+    except SlackApiError as e:
+        if e.response["error"] == "ratelimited":
+            logger.info(f"Rate limited, retrying in {wait} seconds")
+            time.sleep(wait)
+            return update_home(user_id, bot_id, slack_app, silent, True)
+
+        logger.error(f"Error publishing home tab: {e.response['error']}")
+        logger.error(e.response)
 
 
 with open("config.json") as f:
