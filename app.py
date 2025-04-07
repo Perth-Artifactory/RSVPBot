@@ -747,28 +747,6 @@ def write_edit_event(ack: slack_ack, body: dict) -> None:
         event=event, state_values=body["view"]["state"]["values"]
     )
 
-    changes = {}
-
-    # Get the new event data from the modal
-    for key in body["view"]["state"]["values"]:
-        data = body["view"]["state"]["values"][key][key]
-        if data["type"] == "plain_text_input":
-            if event.get(key) != data["value"]:
-                changes[key] = data["value"]
-            event[key] = data["value"]
-        elif data["type"] == "multi_users_select":
-            event[key] = data["selected_users"]
-        elif data["type"] == "datetimepicker":
-            try:
-                time = datetime.fromtimestamp(data["selected_date_time"])
-                if event.get(key) != time:
-                    changes[key] = time
-                event[key] = time
-            except TypeError:
-                # Remove the key if the user didn't select a date
-                del event[key]
-                changes[key] = None
-
     # Convert the event back into blocks
     blocks = block_formatters.format_event(event=event)
 
