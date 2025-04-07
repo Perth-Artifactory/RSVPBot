@@ -10,7 +10,8 @@
         "spinthinking",
         "usergroup",
         "usergroups",
-        "usertype"
+        "usertype",
+        "USLACKBOT"
     ],
     "sonarlint.connectedMode.project": {
         "connectionId": "https-sq-artifactory-org-au",
