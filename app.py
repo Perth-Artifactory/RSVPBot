@@ -1367,13 +1367,16 @@ if "--clean" in sys.argv:
             except Exception as e:
                 logger.error(f"Error getting events: {e}")
 
-    # Remove events that are older than 5 days
-    cutoff = datetime.now() - timedelta(days=5)
+    # Remove events that are older than our cutoff
+    cutoff_days = int(config.get("cleanup_days", 5))
+    cutoff = datetime.now() - timedelta(days=cutoff_days)
     cutoff = cutoff.timestamp()
     collated_events = {
         k: v for k, v in collated_events.items() if v["event_time"] < cutoff
     }
-    logger.info(f"Total events after cutoff: {len(collated_events)}")
+    logger.info(
+        f"Total events after cutoff of {cutoff_days} days: {len(collated_events)}"
+    )
 
     # Open existing archive
     try:

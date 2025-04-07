@@ -30,6 +30,8 @@ Manage RSVPs for events from Slack
 
 * Run `app.py` however you want
 * Run `cron.py` on a daily schedule to post new events, `--debug` to enable debug logging
+* Run `app.py --home` to preload app homes for all users
+* Run `app.py --clean` to archive events that occurred more than `config.json`/`cleanup_days` days ago
 
 ### Manual event creation
 

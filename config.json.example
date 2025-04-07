@@ -10,5 +10,6 @@
     "google": {
         "calendar_id": "XXXX@group.calendar.google.com"
     },
-    "days_before": 4
+    "days_before": 4,
+    "cleanup_days": 5
 }
