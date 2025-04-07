@@ -5,6 +5,7 @@
         "app_token": "xapp-",
         "rsvp_channel": "CXXXXXXX",
         "admin_group": "SXXXXXX",
+        "member_status_emoji": "smile"
     },
     "google": {
         "calendar_id": "XXXX@group.calendar.google.com"
