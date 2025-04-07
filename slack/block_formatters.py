@@ -135,16 +135,22 @@ def simple_modal_blocks(text: str) -> list[dict]:
     return block_list
 
 
-def format_multi_rsvp_modal():
+def format_multi_rsvp_modal(user_type: str = "user"):
     """Format a modal to allow the user to RSVP for multiple people."""
 
     block_list = []
 
     block_list = add_block(block_list=block_list, block=blocks.text)
-    block_list = inject_text(
-        block_list=block_list,
-        text=strings.rsvp_slack_warning,
-    )
+    if user_type == "host":
+        block_list = inject_text(
+            block_list=block_list,
+            text=strings.rsvp_slack_host,
+        )
+    else:
+        block_list = inject_text(
+            block_list=block_list,
+            text=strings.rsvp_slack_warning,
+        )
 
     block_list = add_block(block_list=block_list, block=blocks.multi_users_select)
     block_list[-1]["element"]["action_id"] = "multi_rsvp"

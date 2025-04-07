@@ -176,3 +176,4 @@ cython_debug/
 token.json
 config.json
 events.json
+archived_events.json

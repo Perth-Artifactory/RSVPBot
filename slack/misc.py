@@ -12,6 +12,8 @@ import slack_sdk.errors
 from slack_sdk.errors import SlackApiError
 import time
 
+from slack_sdk.web.slack_response import SlackResponse
+
 from slack import block_formatters
 
 # Set up logging
@@ -88,14 +90,14 @@ def name_mapper(slack_id: str, slack_app: bolt.App) -> str:
             names.append(name_mapper(id, slack_app))
         return ", ".join(names)
 
-    user_info = slack_app.client.users_info(user=slack_id)
+    user_info: SlackResponse = slack_app.client.users_info(user=slack_id)
 
     # Real name is best
-    if user_info["user"].get("real_name", None):
-        return user_info["user"]["real_name"]
+    if user_info["user"].get("real_name", None):  # type: ignore
+        return user_info["user"].get("real_name", "")  # type: ignore
 
     # Display is okay
-    return user_info["user"]["profile"]["display_name"]
+    return user_info["user"]["profile"]["display_name"]  # type: ignore
 
 
 def send_dm(
@@ -116,8 +118,14 @@ def send_dm(
     """
 
     # Create a conversation
-    conversation = slack_app.client.conversations_open(users=[slack_id])
-    conversation_id = conversation["channel"]["id"]
+    try:
+        conversation = slack_app.client.conversations_open(users=[slack_id])
+    except slack_sdk.errors.SlackApiError as e:
+        logger.error(f"Failed to open conversation with {slack_id}")
+        logger.error(e)
+        return False
+
+    conversation_id = conversation["channel"]["id"]  # type: ignore
 
     # Photos are currently bugged for DMs
     photo = None
@@ -146,7 +154,7 @@ def send_dm(
         return False
 
     logger.info(f"Sent message to {slack_id}")
-    return m["channel"]
+    return m["channel"]  # type: ignore
 
 
 def download_file(url: str, config: dict) -> bytes:
@@ -343,11 +351,16 @@ def create_event_info(event: dict) -> dict:
 
 
 def extract_events_from_dms(
-    messages: list, bot_id: str, slack_app: bolt.App, user_id: str
+    messages: list,
+    bot_id: str,
+    slack_app: bolt.App,
+    user_id: str,
+    compressed: bool = False,
 ) -> list:
     """Extract events from a list of messages
 
-    Injects the permalink and selected RSVP option(s) into the event data"""
+    Injects the permalink and selected RSVP option(s) into the event data.
+    If compressed is True, will collect just the ts/channel/event_time data for all known events."""
     event_changes = {}
 
     for message in messages:
@@ -370,8 +383,19 @@ def extract_events_from_dms(
             ]
 
     events_to_retrieve = []
+    compressed_events = []
 
     for event in event_changes:
+        if compressed:
+            compressed_events.append(
+                {
+                    "ts": event,
+                    "channel": event_changes[event][-1]["data"]["channel"],
+                    "event_time": event_changes[event][-1]["data"]["event_time"],
+                }
+            )
+            continue
+
         last_known_event_timestamp = event_changes[event][-1]["data"]["event_time"]
         last_known_event_date = datetime.fromtimestamp(last_known_event_timestamp)
 
@@ -387,6 +411,9 @@ def extract_events_from_dms(
             {"ts": event, "channel": event_changes[event][-1]["data"]["channel"]}
         )
 
+    if compressed:
+        return compressed_events
+
     # Sort the events by timestamp
     events_to_retrieve.sort(key=lambda x: x["ts"])
 
@@ -398,9 +425,9 @@ def extract_events_from_dms(
             oldest=event["ts"],
             limit=1,
             inclusive=True,
-        )["messages"][0]
+        ).get("messages", [])[0]
 
-        if not message:
+        if not message or not message.get("blocks"):
             continue
 
         # Extract the event data from the message
@@ -442,6 +469,7 @@ def update_home(
     # Get our DM with the user
     try:
         dm_channel = slack_app.client.conversations_open(users=user_id)
+        dm_channel_id: str = dm_channel["channel"]["id"]  # type: ignore
     except SlackApiError as e:
         if e.response["error"] == "ratelimited":
             logger.info(f"Rate limited, retrying in {wait} seconds")
@@ -454,8 +482,8 @@ def update_home(
     # Get all messages from the dm
     try:
         messages = slack_app.client.conversations_history(
-            channel=dm_channel["channel"]["id"], limit=999, include_all_metadata=True
-        )["messages"]
+            channel=dm_channel_id, limit=999, include_all_metadata=True
+        ).get("messages", [])
 
         events = extract_events_from_dms(
             messages=messages, bot_id=bot_id, slack_app=slack_app, user_id=user_id
@@ -489,6 +517,178 @@ def update_home(
 
         logger.error(f"Error publishing home tab: {e.response['error']}")
         logger.error(e.response)
+
+
+def get_users(slack_app: bolt.App) -> list:
+    """Get a list of users in the workspace
+
+    Returns user IDs not user objects"""
+
+    slack_response = slack_app.client.users_list()
+    slack_users = []
+    while slack_response.data.get("response_metadata", {}).get("next_cursor"):  # type: ignore
+        slack_users += slack_response.data["members"]  # type: ignore
+        slack_response = slack_app.client.users_list(
+            cursor=slack_response.data["response_metadata"]["next_cursor"]  # type: ignore
+        )
+    slack_users += slack_response.data["members"]  # type: ignore
+
+    users = []
+
+    # Convert slack response to list of users since it comes as an odd iterable
+    for user in slack_users:
+        if user["is_bot"] or user["deleted"] or user["id"] == "USLACKBOT":
+            continue
+        users.append(user["id"])
+
+    return users
+
+
+def get_dms(
+    user_id: str,
+    bot_id: str,
+    slack_app: bolt.App,
+    silent: bool = False,
+    limited: bool = False,
+) -> list | None:
+    """Get our DMs with a user"""
+
+    wait = 2
+    if limited:
+        wait = 10
+
+    # Get our DM with the user
+    try:
+        dm_channel = slack_app.client.conversations_open(users=user_id)
+        dm_channel_id: str = dm_channel["channel"]["id"]  # type: ignore
+    except SlackApiError as e:
+        if e.response["error"] == "ratelimited":
+            logger.info(f"Rate limited, retrying in {wait} seconds")
+            time.sleep(wait)
+            return get_dms(
+                user_id=user_id,
+                bot_id=bot_id,
+                slack_app=slack_app,
+                silent=silent,
+                limited=True,
+            )
+
+        logger.error(f"Error opening DM: {e.response['error']}")
+        logger.error(e.response)
+
+    # Get all messages from the dm
+    try:
+        messages = slack_app.client.conversations_history(
+            channel=dm_channel_id, limit=999, include_all_metadata=True
+        )["messages"]
+
+        return messages
+
+    except SlackApiError as e:
+        if e.response["error"] == "ratelimited":
+            logger.info(f"Rate limited, retrying in {wait} seconds")
+            time.sleep(wait)
+            return get_dms(
+                user_id=user_id,
+                bot_id=bot_id,
+                slack_app=slack_app,
+                silent=silent,
+                limited=True,
+            )
+
+        logger.error(f"Error retrieving messages: {e.response['error']}")
+        logger.error(e.response)
+
+
+def extract_event_data_from_pointer(
+    slack_app: bolt.App, ts: str, channel: str
+) -> tuple[dict, dict]:
+    """Extract event data from a ts/channel"""
+
+    # Get the message data from the pointer
+    try:
+        message = slack_app.client.conversations_history(
+            channel=channel,
+            limit=1,
+            inclusive=True,
+            oldest=ts,
+        ).get("messages", [])[0]
+
+        parsed_event: dict = parse_event(message["blocks"])
+
+        return parsed_event, message
+
+    except SlackApiError as e:
+        logger.error(f"Error retrieving message: {e.response['error']}")
+        logger.error(e.response)
+    except IndexError:
+        logger.error("Error retrieving message")
+
+    return {}, {}
+
+
+def get_events_from_user(user_id: str, bot_id: str, slack_app: bolt.App) -> list:
+    """Get all events from a user"""
+
+    # Get all DMs with the user
+    messages = get_dms(
+        user_id=user_id, bot_id=bot_id, slack_app=slack_app, limited=True
+    )
+
+    if not messages:
+        return []
+
+    # Extract events from the DMs
+    events = extract_events_from_dms(
+        messages=messages,
+        bot_id=bot_id,
+        slack_app=slack_app,
+        user_id=user_id,
+        compressed=True,
+    )
+
+    return events
+
+
+def delete_event(slack_app: bolt.App, channel: str, ts: str) -> bool:
+    """Delete an event from a channel"""
+
+    # Get all replies to the event post
+
+    try:
+        replies = slack_app.client.conversations_replies(
+            channel=channel,
+            ts=ts,
+            limit=1000,
+        ).get("messages", [])
+    except SlackApiError as e:
+        logger.error(f"Error retrieving replies: {e.response['error']}")
+        logger.error(e.response)
+        return False
+
+    # Delete the replies
+    for reply in replies:
+        try:
+            slack_app.client.chat_delete(
+                channel=channel,
+                ts=reply["ts"],
+            )
+        except SlackApiError as e:
+            logger.error(f"Error deleting reply: {e.response['error']}")
+            logger.error(e.response)
+            return False
+    # Delete the original message
+    try:
+        slack_app.client.chat_delete(
+            channel=channel,
+            ts=ts,
+        )
+    except SlackApiError as e:
+        if e.response["error"] != "message_not_found":
+            logger.error(f"Error deleting message: {e.response['error']}")
+            logger.error(e.response)
+            return False
+    return True
 
 
 with open("config.json") as f:

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk.errors import SlackApiError
+from slack_sdk.web.slack_response import SlackResponse
 
 from slack import block_formatters, misc
 from editable_resources import strings
@@ -119,7 +120,10 @@ def rsvp(ack, body):
         # Get the status of the member
         try:
             user_info = app.client.users_info(user=user)
-            user_status = user_info["user"].get("profile", {}).get("status_emoji", "")
+
+            user_status = (
+                user_info.get("user", {}).get("profile", {}).get("status_emoji", "")
+            )
 
             # Remove : from the user status
             user_status.replace(":", "")
@@ -203,6 +207,8 @@ def rsvp(ack, body):
             # We can't send a useful DM if we don't have a permalink
             return
 
+        assert permalink is not None
+
         # Send a DM to the user as a record of the RSVP
         dm_blocks = block_formatters.format_event_dm(
             event=event,
@@ -239,15 +245,9 @@ def remove_rsvp(ack, body):
     ts, attend_type, channel = body["actions"][0]["value"].split("-")
     user = body["user"]["id"]
 
-    # Retrieve the actual message we care about
-    result = app.client.conversations_history(
-        channel=channel, inclusive=True, oldest=ts, limit=1
+    event, message = misc.extract_event_data_from_pointer(
+        slack_app=app, ts=ts, channel=channel
     )
-
-    message = result["messages"][0]
-
-    # Convert the blocks into an event dictionary
-    event = misc.parse_event(message["blocks"])
 
     # Remove the user from the event if they exist
     if user in event["rsvp_options"][attend_type]:
@@ -303,6 +303,9 @@ def remove_rsvp(ack, body):
         # We can't send a useful DM if we don't have a permalink
         return
 
+    # The only way for permalink to fail is caught by the except block above
+    assert permalink is not None
+
     # Send a DM to the user as a record of the RSVP removal
     dm_blocks = block_formatters.format_event_dm(
         event=event,
@@ -340,15 +343,9 @@ def remove_rsvp_modal(ack, body):
 
     admin = body["user"]["id"]
 
-    # Retrieve the actual message we care about
-    result = app.client.conversations_history(
-        channel=channel, inclusive=True, oldest=ts, limit=1
+    event, message = misc.extract_event_data_from_pointer(
+        slack_app=app, ts=ts, channel=channel
     )
-
-    message = result["messages"][0]
-
-    # Convert the blocks into an event dictionary
-    event = misc.parse_event(message["blocks"])
 
     # Remove the user from the event if they exist
     if user in event["rsvp_options"][attend_type]:
@@ -395,6 +392,9 @@ def remove_rsvp_modal(ack, body):
         "permalink"
     ]
 
+    # The only way for permalink to fail is if it was deleted in the milliseconds since we retrieved it above
+    assert permalink is not None
+
     # Send a DM to the user as a record of the RSVP removal
     dm_blocks = block_formatters.format_event_dm(
         event=event,
@@ -429,16 +429,9 @@ def other_rsvp(ack, body):
     ts, attend_type, channel = body["actions"][0]["value"].split("-")
     user = body["user"]["id"]
 
-    # Retrieve the actual message we care about
-
-    result = app.client.conversations_history(
-        channel=channel, inclusive=True, oldest=ts, limit=1
+    event, message = misc.extract_event_data_from_pointer(
+        slack_app=app, ts=ts, channel=channel
     )
-
-    message = result["messages"][0]
-
-    # Convert the blocks into an event dictionary
-    event = misc.parse_event(message["blocks"])
 
     # Increase the count of the user or add them if they don't exist
     if user in event["rsvp_options"][attend_type]:
@@ -483,9 +476,9 @@ def other_rsvp(ack, body):
 
     # Send a DM to the user as a record of the RSVP
 
-    permalink = app.client.chat_getPermalink(channel=channel, message_ts=ts)[
-        "permalink"
-    ]
+    permalink = app.client.chat_getPermalink(channel=channel, message_ts=ts).get(
+        "permalink", ""
+    )
 
     dm_blocks = block_formatters.format_event_dm(
         event=event,
@@ -519,7 +512,9 @@ def other_rsvp(ack, body):
 def modal_other_slack_rsvp(ack, body):
     ack()
 
-    blocks = block_formatters.format_multi_rsvp_modal()
+    user_type = body["actions"][0]["value"].split("-")[-1]
+
+    blocks = block_formatters.format_multi_rsvp_modal(user_type=user_type)
     try:
         app.client.views_push(
             trigger_id=body["trigger_id"],
@@ -547,20 +542,14 @@ def multi_rsvp_submit(ack, body, logger):
     # Parse the private metadata
     ts, attend_type, channel, usertype = body["view"]["private_metadata"].split("-")
 
+    event, message = misc.extract_event_data_from_pointer(
+        slack_app=app, ts=ts, channel=channel
+    )
+
     user = body["user"]["id"]
     other_attendees = body["view"]["state"]["values"]["multi_rsvp"]["multi_rsvp"][
         "selected_users"
     ]
-
-    # Retrieve the actual message we care about
-    result = app.client.conversations_history(
-        channel=channel, inclusive=True, oldest=ts, limit=1
-    )
-
-    message = result["messages"][0]
-
-    # Convert the blocks into an event dictionary
-    event = misc.parse_event(message["blocks"])
 
     # Add users to the event if they have not already RSVP'd, do nothing if they have
     added = []
@@ -648,9 +637,9 @@ def multi_rsvp_submit(ack, body, logger):
 
     # Send a DM to the user as a record of the RSVP
 
-    permalink = app.client.chat_getPermalink(channel=channel, message_ts=ts)[
-        "permalink"
-    ]
+    permalink = app.client.chat_getPermalink(channel=channel, message_ts=ts).get(
+        "permalink", ""
+    )
 
     dm_blocks = block_formatters.format_event_dm(
         event=event,
@@ -688,13 +677,9 @@ def admin_event(ack, body):
     channel = body["channel"]["id"]
     user = body["user"]["id"]
 
-    message = app.client.conversations_history(
-        channel=channel, inclusive=True, oldest=ts, limit=1
+    event, _ = misc.extract_event_data_from_pointer(
+        slack_app=app, ts=ts, channel=channel
     )
-    message = message["messages"][0]
-
-    # Get event data
-    event = misc.parse_event(message["blocks"])
 
     # Check if the user is an event host
     if user in event.get("hosts", []) or user in admins:
@@ -753,13 +738,9 @@ def write_edit_event(ack, body):
 
     else:
         # Get a fresh copy of the event message
-        message = app.client.conversations_history(
-            channel=channel, inclusive=True, oldest=ts, limit=1
+        event, message = misc.extract_event_data_from_pointer(
+            slack_app=app, ts=ts, channel=channel
         )
-        message = message["messages"][0]
-
-        # Parse the event data from the message
-        event = misc.parse_event(message["blocks"])
 
     changes = {}
 
@@ -793,7 +774,7 @@ def write_edit_event(ack, body):
         current_channels = app.client.conversations_list(
             exclude_archived=True, types="public_channel,private_channel"
         )
-        if channel not in [c["id"] for c in current_channels["channels"]]:
+        if channel not in [c["id"] for c in current_channels.get("channels", [])]:
             app.client.conversations_join(channel=channel)
 
         try:
@@ -842,9 +823,9 @@ def write_edit_event(ack, body):
             ]
             notify_users = list(set(notify_users))
 
-            permalink = app.client.chat_getPermalink(channel=channel, message_ts=ts)[
-                "permalink"
-            ]
+            permalink = app.client.chat_getPermalink(
+                channel=channel, message_ts=ts
+            ).get("permalink", "")
             dm_blocks = block_formatters.format_event_dm(
                 event=event,
                 message="An event you RSVP'd to has been updated",
@@ -882,13 +863,9 @@ def modal_edit_rsvp(ack, body):
     # Get the original message this message was replied to
     ts, channel = body["view"]["private_metadata"].split("-")
 
-    # Get event data
-    message = app.client.conversations_history(
-        channel=channel, inclusive=True, oldest=ts, limit=1
+    event, _ = misc.extract_event_data_from_pointer(
+        slack_app=app, ts=ts, channel=channel
     )
-    message = message["messages"][0]
-
-    event = misc.parse_event(message["blocks"])
 
     blocks = block_formatters.format_edit_rsvps(event=event, ts=ts, channel=channel)
 
@@ -917,13 +894,9 @@ def edit_rsvp_options_modal(ack, body):
     # Get the original message this message was replied to
     ts, channel = body["view"]["private_metadata"].split("-")
 
-    # Get event data
-    message = app.client.conversations_history(
-        channel=channel, inclusive=True, oldest=ts, limit=1
+    event, _ = misc.extract_event_data_from_pointer(
+        slack_app=app, ts=ts, channel=channel
     )
-    message = message["messages"][0]
-
-    event = misc.parse_event(message["blocks"])
 
     blocks = block_formatters.format_edit_rsvp_options(
         event=event,
@@ -957,12 +930,9 @@ def edit_rsvp_options(ack, body, logger):
     ts, channel = body["view"]["private_metadata"].split("-")
     user = body["user"]["id"]
 
-    # Get event data
-    message = app.client.conversations_history(
-        channel=channel, inclusive=True, oldest=ts, limit=1
+    event, message = misc.extract_event_data_from_pointer(
+        slack_app=app, ts=ts, channel=channel
     )
-    message = message["messages"][0]
-    event = misc.parse_event(message["blocks"])
 
     for option in body["view"]["state"]["values"]:
         old_name = option.replace("rsvp_option_", "")
@@ -992,7 +962,7 @@ def edit_rsvp_options(ack, body, logger):
             if old_name != "New Option":
                 permalink = app.client.chat_getPermalink(
                     channel=channel, message_ts=ts
-                )["permalink"]
+                ).get("permalink", "")
 
                 dm_message = f"The RSVP option `{old_name}` has been renamed to `{new_name}` for an event you are attending"
 
@@ -1053,11 +1023,9 @@ def delete_rsvp_option(ack, body, logger):
     ts, channel = body["view"]["private_metadata"].split("-")
 
     # Get event data
-    message = app.client.conversations_history(
-        channel=channel, inclusive=True, oldest=ts, limit=1
+    event, message = misc.extract_event_data_from_pointer(
+        slack_app=app, ts=ts, channel=channel
     )
-    message = message["messages"][0]
-    event = misc.parse_event(message["blocks"])
 
     # Get the RSVP option to delete
     option = body["actions"][0]["value"].split("-")[1]
@@ -1118,9 +1086,9 @@ def delete_rsvp_option(ack, body, logger):
         logger.error(e.response)
 
     # Send DM to users as a record of the RSVP option change
-    permalink = app.client.chat_getPermalink(channel=channel, message_ts=ts)[
-        "permalink"
-    ]
+    permalink = app.client.chat_getPermalink(channel=channel, message_ts=ts).get(
+        "permalink", ""
+    )
     dm_message = f"`{option}` has been deleted as an RSVP option for an event you were attending and has subsequently removed your RSVP"
     dm_blocks = block_formatters.format_event_dm(
         event=event,
@@ -1158,12 +1126,9 @@ def add_rsvp_option(ack, body):
 
     ts, channel = body["view"]["private_metadata"].split("-")
 
-    # Get event data
-    message = app.client.conversations_history(
-        channel=channel, inclusive=True, oldest=ts, limit=1
+    event, message = misc.extract_event_data_from_pointer(
+        slack_app=app, ts=ts, channel=channel
     )
-    message = message["messages"][0]
-    event = misc.parse_event(message["blocks"])
 
     event["rsvp_options"]["New Option"] = {}
 
@@ -1319,47 +1284,30 @@ else:
         "Something went wrong with the admin group (or it wasn't specified). Only event hosts will be able to edit events"
     )
 
-bot_id = app.client.auth_test()["user_id"]
+bot_id: str = app.client.auth_test().get("user_id", "")
 
-# The cron mode renders the app home for every user in the workspace
-if "--cron" in sys.argv:
+users = []
+run = True
+# The home mode renders the app home for every user in the workspace
+if "--home" in sys.argv:
+    run = False
     # Update homes for all slack users
     logger.info("Updating homes for all users")
 
-    # Get a list of all users from slack
-    slack_response = app.client.users_list()
-    slack_users = []
-    while slack_response.data.get("response_metadata", {}).get("next_cursor"):  # type: ignore
-        slack_users += slack_response.data["members"]  # type: ignore
-        slack_response = app.client.users_list(
-            cursor=slack_response.data["response_metadata"]["next_cursor"]  # type: ignore
-        )
-    slack_users += slack_response.data["members"]  # type: ignore
-
-    users = []
-
-    # Convert slack response to list of users since it comes as an odd iterable
-    for user in slack_users:
-        if user["is_bot"] or user["deleted"] or user["id"] == "USLACKBOT":
-            continue
-        users.append(user)
-
+    users = misc.get_users(slack_app=app)
     logger.info(f"Found {len(users)} users")
 
     x = 1
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    threads = []
-
     with ThreadPoolExecutor(max_workers=3) as executor:
         futures = []
         for user in users:
-            user_id = user["id"]
             futures.append(
                 executor.submit(
                     misc.update_home,
-                    user_id=user_id,
+                    user_id=user,
                     bot_id=bot_id,
                     slack_app=app,
                     silent=True,
@@ -1374,9 +1322,87 @@ if "--cron" in sys.argv:
                 logger.error(f"Error updating home: {e}")
 
     logger.info(f"All homes updated ({x - 1})")
-    sys.exit(0)
 
-else:
+# The clean mode archives all events that finished more than a day ago
+if "--clean" in sys.argv:
+    run = False
+    logger.info("Cleaning up old events")
+
+    if not users:
+        users = misc.get_users(slack_app=app)[:20]
+        logger.info(f"Found {len(users)} users")
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    collated_events = {}
+
+    x = 1
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = []
+        for user in users:
+            futures.append(
+                executor.submit(
+                    misc.get_events_from_user,
+                    user_id=user,
+                    bot_id=bot_id,
+                    slack_app=app,
+                )
+            )
+        for future in as_completed(futures):
+            try:
+                events = future.result()
+
+                for event in events:
+                    if event["ts"] not in collated_events:
+                        collated_events[event["ts"]] = event
+                    else:
+                        if (
+                            event["event_time"]
+                            > collated_events[event["ts"]]["event_time"]
+                        ):
+                            collated_events[event["ts"]] = event
+                x += 1
+                logger.info(f"Got collated events from ({x}/{len(users)})")
+                logger.info(f"Total events found: {len(collated_events)}")
+            except Exception as e:
+                logger.error(f"Error getting events: {e}")
+
+    # Remove events that are older than 5 days
+    cutoff = datetime.now() - timedelta(days=5)
+    cutoff = cutoff.timestamp()
+    collated_events = {
+        k: v for k, v in collated_events.items() if v["event_time"] < cutoff
+    }
+    logger.info(f"Total events after cutoff: {len(collated_events)}")
+
+    # Open existing archive
+    try:
+        with open("archived_events.json", "r") as f:
+            archived_events: dict = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        archived_events = {}
+
+    for event in collated_events.values():
+        event, message = misc.extract_event_data_from_pointer(
+            slack_app=app, ts=event["ts"], channel=event["channel"]
+        )
+        archived_events[message["ts"]] = event
+
+    # Save the archived events back to the file
+    with open("archived_events.json", "w") as f:
+        json.dump(archived_events, f, indent=4, default=str)
+        logger.info("Archived events saved")
+
+    # Delete the event posts
+    for event in collated_events.values():
+        event_time_str = datetime.fromtimestamp(event["event_time"]).strftime(
+            "%Y-%m-%d %H:%M"
+        )
+        logging.info(f"Deleting event {event['ts']} ({event_time_str})")
+        misc.delete_event(slack_app=app, ts=event["ts"], channel=event["channel"])
+
+
+if run:
     # Start the app
     if __name__ == "__main__":
         handler = SocketModeHandler(app, config["slack"]["app_token"])
