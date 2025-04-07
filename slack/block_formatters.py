@@ -96,7 +96,7 @@ def format_event(event: dict) -> list[dict]:
     return block_list
 
 
-def modal_rsvp_options(ts, attend_type, channel):
+def modal_rsvp_options(ts: str, attend_type: str, channel: str) -> list[dict]:
     """Format a message to display that the user has already RSVP'd."""
 
     block_list = []
@@ -135,7 +135,7 @@ def simple_modal_blocks(text: str) -> list[dict]:
     return block_list
 
 
-def format_multi_rsvp_modal(user_type: str = "user"):
+def format_multi_rsvp_modal(user_type: str = "user") -> list[dict]:
     """Format a modal to allow the user to RSVP for multiple people."""
 
     block_list = []
@@ -161,7 +161,7 @@ def format_multi_rsvp_modal(user_type: str = "user"):
     return block_list
 
 
-def format_admin_prompt(event) -> list[dict]:
+def format_admin_prompt(event: dict) -> list[dict]:
     """Format a message to display admin tools."""
 
     block_list = []

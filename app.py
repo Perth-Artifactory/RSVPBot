@@ -5,6 +5,7 @@ import sys
 from pprint import pprint
 from datetime import datetime, timedelta
 
+from slack_bolt.context.ack.ack import Ack as slack_ack
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk.errors import SlackApiError
@@ -56,7 +57,7 @@ app = App(token=config["slack"]["bot_token"], logger=slack_logger)
 
 
 @app.action(re.compile(r"^rsvp_.*"))
-def rsvp(ack, body):
+def rsvp(ack: slack_ack, body: dict) -> None:
     """Respond to specific RSVP button actions"""
     ack()
 
@@ -238,7 +239,7 @@ def rsvp(ack, body):
 
 
 @app.action("remove_rsvp")
-def remove_rsvp(ack, body):
+def remove_rsvp(ack: slack_ack, body: dict) -> None:
     """Remove the RSVP (if present) for the triggering user"""
     ack()
     # Get the info from the button
@@ -335,7 +336,7 @@ def remove_rsvp(ack, body):
 
 
 @app.action("remove_rsvp_modal")
-def remove_rsvp_modal(ack, body):
+def remove_rsvp_modal(ack: slack_ack, body: dict) -> None:
     """Remove the RSVP (if present) for the specified user"""
     ack()
     # Get the info from the button
@@ -424,7 +425,7 @@ def remove_rsvp_modal(ack, body):
 
 
 @app.action("other_rsvp")
-def other_rsvp(ack, body):
+def other_rsvp(ack: slack_ack, body: dict) -> None:
     ack()
     ts, attend_type, channel = body["actions"][0]["value"].split("-")
     user = body["user"]["id"]
@@ -509,7 +510,7 @@ def other_rsvp(ack, body):
 
 
 @app.action("other_slack_rsvp")
-def modal_other_slack_rsvp(ack, body):
+def modal_other_slack_rsvp(ack: slack_ack, body: dict) -> None:
     ack()
 
     user_type = body["actions"][0]["value"].split("-")[-1]
@@ -536,7 +537,7 @@ def modal_other_slack_rsvp(ack, body):
 
 
 @app.view("multi_rsvp")
-def multi_rsvp_submit(ack, body, logger):
+def multi_rsvp_submit(ack: slack_ack, body: dict) -> None:
     ack()
 
     # Parse the private metadata
@@ -669,7 +670,7 @@ def multi_rsvp_submit(ack, body, logger):
 
 
 @app.action("admin_event")
-def admin_event(ack, body):
+def admin_event(ack: slack_ack, body: dict) -> None:
     ack()
 
     # Get the original message this message was replied to
@@ -724,7 +725,7 @@ def admin_event(ack, body):
 
 
 @app.view("write_edit_event")
-def write_edit_event(ack, body):
+def write_edit_event(ack: slack_ack, body: dict) -> None:
     """Handle the event edit modal submission"""
     ack()
 
@@ -756,13 +757,13 @@ def write_edit_event(ack, body):
         elif data["type"] == "datetimepicker":
             try:
                 time = datetime.fromtimestamp(data["selected_date_time"])
+                if event.get(key) != time:
+                    changes[key] = time
+                event[key] = time
             except TypeError:
                 # Remove the key if the user didn't select a date
                 del event[key]
                 changes[key] = None
-            if event.get(key) != time:
-                changes[key] = time
-            event[key] = time
 
     # Convert the event back into blocks
     blocks = block_formatters.format_event(event=event)
@@ -804,7 +805,7 @@ def write_edit_event(ack, body):
                 channel=channel,
                 ts=ts,
                 blocks=blocks,
-                text=message["text"],
+                text=message["text"],  # type: ignore
             )
         except SlackApiError as e:
             logger.error(f"Error updating message: {e.response['error']}")
@@ -856,7 +857,7 @@ def write_edit_event(ack, body):
 
 
 @app.action("edit_rsvp_modal")
-def modal_edit_rsvp(ack, body):
+def modal_edit_rsvp(ack: slack_ack, body: dict) -> None:
     """Push a view to edit the RSVPs for an event"""
     ack()
 
@@ -887,7 +888,7 @@ def modal_edit_rsvp(ack, body):
 
 
 @app.action("edit_rsvp_options_modal")
-def edit_rsvp_options_modal(ack, body):
+def edit_rsvp_options_modal(ack: slack_ack, body: dict) -> None:
     """Send the modal to edit the RSVP options"""
     ack()
 
@@ -924,7 +925,7 @@ def edit_rsvp_options_modal(ack, body):
 
 
 @app.view("edit_rsvp_options_modal")
-def edit_rsvp_options(ack, body, logger):
+def edit_rsvp_options(ack: slack_ack, body: dict) -> None:
     ack()
 
     ts, channel = body["view"]["private_metadata"].split("-")
@@ -1016,7 +1017,7 @@ def edit_rsvp_options(ack, body, logger):
 
 
 @app.action("delete_rsvp_option")
-def delete_rsvp_option(ack, body, logger):
+def delete_rsvp_option(ack: slack_ack, body: dict) -> None:
     ack()
     # pprint(body)
 
@@ -1119,7 +1120,7 @@ def delete_rsvp_option(ack, body, logger):
 
 
 @app.action("add_rsvp_option")
-def add_rsvp_option(ack, body):
+def add_rsvp_option(ack: slack_ack, body: dict) -> None:
     """Add a new RSVP option to the event"""
 
     ack()
@@ -1175,14 +1176,14 @@ def add_rsvp_option(ack, body):
 
 # listen for app home opened events
 @app.event("app_home_opened")
-def update_home_tab(event):
+def update_home_tab(event: dict) -> None:
     """Update the home tab when the app is opened"""
 
     misc.update_home(user_id=event["user"], bot_id=bot_id, slack_app=app)
 
 
 @app.action("create_event_modal")
-def create_event_modal(ack, body):
+def create_event_modal(ack: slack_ack, body: dict) -> None:
     """Send the modal to create a new event"""
 
     ack()
@@ -1209,7 +1210,7 @@ def create_event_modal(ack, body):
 
 
 @app.view("create_event")
-def create_event(ack, body, logger):
+def create_event(ack: slack_ack, body: dict) -> None:
     """Handle the event creation modal submission"""
     ack()
 
@@ -1260,7 +1261,7 @@ def create_event(ack, body, logger):
 
 
 @app.action("event_detail_link")
-def ignore_link_press(ack):
+def ignore_link_press(ack: slack_ack) -> None:
     """Ignore the link press event"""
     ack()
 
@@ -1331,7 +1332,8 @@ if "--clean" in sys.argv:
     if not users:
         users = misc.get_users(slack_app=app)[:20]
         logger.info(f"Found {len(users)} users")
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
 
     collated_events = {}
 
