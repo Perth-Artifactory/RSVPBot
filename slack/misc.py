@@ -691,5 +691,35 @@ def delete_event(slack_app: bolt.App, channel: str, ts: str) -> bool:
     return True
 
 
+def parse_event_changes(event: dict, state_values: dict) -> tuple[dict, dict]:
+    """Parse the changes made to an event in a modal and return the updated event and a dictionary of changes
+
+    Specifically accepts the values from the body response, not the body itself"""
+
+    changes = {}
+
+    # Get the new event data from the modal
+    for key in state_values:
+        data = state_values[key][key]
+        if data["type"] == "plain_text_input":
+            if event.get(key) != data["value"]:
+                changes[key] = data["value"]
+            event[key] = data["value"]
+        elif data["type"] == "multi_users_select":
+            event[key] = data["selected_users"]
+        elif data["type"] == "datetimepicker":
+            try:
+                time = datetime.fromtimestamp(data["selected_date_time"])
+                if event.get(key) != time:
+                    changes[key] = time
+                event[key] = time
+            except TypeError:
+                # Remove the key if the user didn't select a date
+                del event[key]
+                changes[key] = None
+
+    return event, changes
+
+
 with open("config.json") as f:
     config: dict = json.load(f)

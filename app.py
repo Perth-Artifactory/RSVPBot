@@ -743,6 +743,10 @@ def write_edit_event(ack: slack_ack, body: dict) -> None:
             slack_app=app, ts=ts, channel=channel
         )
 
+    event, changes = misc.parse_event_changes(
+        event=event, state_values=body["view"]["state"]["values"]
+    )
+
     changes = {}
 
     # Get the new event data from the modal
