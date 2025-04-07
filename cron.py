@@ -187,7 +187,7 @@ for event in formatted_events:
                         blocks=blocks,
                         text=f"RSVP for {converted_event['title']}!",
                     )
-                    ts = response["ts"]
+                    ts = response.get("ts", "")
                 except SlackApiError as e:
                     logger.error(f"Error posting message: {e.response['error']}")
                     logger.error(e.response)
@@ -231,7 +231,7 @@ for event in formatted_events:
                 if converted_event.get("auto_rsvp_users"):
                     permalink = app.client.chat_getPermalink(
                         channel=converted_event["channel"], message_ts=ts
-                    )["permalink"]
+                    ).get("permalink", "")
 
                     rsvp_option = list(converted_event["rsvp_options"])[0]
 
