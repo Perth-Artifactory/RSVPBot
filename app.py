@@ -578,7 +578,7 @@ def multi_rsvp_submit(ack: slack_ack, body: dict) -> None:
 
     # Users get a new modal, hosts just get their existing modal updated
     if usertype == "user":
-        # Push a new modal to the user letting them know their RSVP was removed
+        # Push a new modal to the user letting them know the other user(s) were RSVP'd
         modal_text = ""
         if added:
             modal_text = strings.rsvp_slack_added.format(
@@ -642,31 +642,35 @@ def multi_rsvp_submit(ack: slack_ack, body: dict) -> None:
         "permalink", ""
     )
 
+    dm_message = "You have been RSVP'd to an event by <@{user}>"
+
     dm_blocks = block_formatters.format_event_dm(
         event=event,
-        message="You have been RSVP'd to an event",
+        message=dm_message,
         event_link=permalink,
         rsvp_option=attend_type,
     )
-    try:
-        misc.send_dm(
-            slack_id=user,
-            message="You have been RSVP'd to an event by <@{user}>",
-            slack_app=app,
-            blocks=dm_blocks,
-            metadata={
-                "event_type": "rsvp_by_other",
-                "event_payload": {
-                    "ts": ts,
-                    "channel": channel,
-                    "rsvp_option": attend_type,
-                    "event_time": int(event["start"].timestamp()),
+
+    for other_attendee in added:
+        try:
+            misc.send_dm(
+                slack_id=other_attendee,
+                message=dm_message,
+                slack_app=app,
+                blocks=dm_blocks,
+                metadata={
+                    "event_type": "rsvp_by_other",
+                    "event_payload": {
+                        "ts": ts,
+                        "channel": channel,
+                        "rsvp_option": attend_type,
+                        "event_time": int(event["start"].timestamp()),
+                    },
                 },
-            },
-        )
-    except SlackApiError as e:
-        logger.error(f"Error sending DM: {e.response['error']}")
-        logger.error(e.response)
+            )
+        except SlackApiError as e:
+            logger.error(f"Error sending DM: {e.response['error']}")
+            logger.error(e.response)
 
 
 @app.action("admin_event")
