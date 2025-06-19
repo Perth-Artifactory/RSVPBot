@@ -760,13 +760,6 @@ def write_edit_event(ack: slack_ack, body: dict) -> None:
     # If the event already exists update the event, if it doesn't create the event post
 
     if ts == "NEW":
-        # Check that we're in the channel and join if we're not
-        current_channels = app.client.conversations_list(
-            exclude_archived=True, types="public_channel,private_channel"
-        )
-        if channel not in [c["id"] for c in current_channels.get("channels", [])]:
-            app.client.conversations_join(channel=channel)
-
         try:
             response = app.client.chat_postMessage(
                 channel=channel,
