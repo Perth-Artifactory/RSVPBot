@@ -735,6 +735,9 @@ def write_edit_event(ack: slack_ack, body: dict) -> None:
 
     ts, channel = body["view"]["private_metadata"].split("-")
 
+    # Events may be created in channels we're not a part of. We've been able to post the initial message but we can't retrieve it.
+    app.client.conversations_join(channel=channel)
+
     # If the ts has a value of NEW, it means the user is creating a new event
     if ts == "NEW":
         # There's no existing event to retrieve
