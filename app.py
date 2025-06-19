@@ -642,7 +642,7 @@ def multi_rsvp_submit(ack: slack_ack, body: dict) -> None:
         "permalink", ""
     )
 
-    dm_message = "You have been RSVP'd to an event by <@{user}>"
+    dm_message = f"You have been RSVP'd to an event by <@{user}>"
 
     dm_blocks = block_formatters.format_event_dm(
         event=event,
