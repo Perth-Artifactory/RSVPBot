@@ -715,7 +715,8 @@ def parse_event_changes(event: dict, state_values: dict) -> tuple[dict, dict]:
                 event[key] = time
             except TypeError:
                 # Remove the key if the user didn't select a date
-                del event[key]
+                if key in event:
+                    del event[key]
                 changes[key] = None
 
     return event, changes
